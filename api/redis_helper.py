@@ -19,7 +19,7 @@ def get_redis_client(db:int= None):
     """Create and return a Redis client based on environment variables."""
     redis_host = os.getenv("REDIS_HOST", "localhost")  # Default to localhost
     redis_port = int(os.getenv("REDIS_PORT", 6379))    # Default to 6379
-    database_index = db or int(os.getenv("REDIS_DB_INDEX", 0))
+    database_index = db if db is not None else int(os.getenv("REDIS_DB_INDEX", 0))
     
     return redis.Redis(host=redis_host, port=redis_port, db=database_index, decode_responses=True)
 

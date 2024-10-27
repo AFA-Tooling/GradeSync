@@ -1,18 +1,24 @@
 # test_redis_helper.py
-from redis_helper import set_value, get_value, redis_client
+from dotenv import load_dotenv
+from fastapi.testclient import TestClient
+from app import app
+from redis_helper import get_redis_client
+
+client = TestClient(app)
 
 def test_set_and_get_value():
-    # Test data
-    test_key = "test_key"
-    test_value = "Hello, Redis!"
+    # Define test data
+    test_key = "johnsmith@example.com"
+    test_value = "A+"
 
-    # Test setting a value
-    set_success = set_value(test_key, test_value)
-    assert set_success is True, "Failed to set value in Redis."
+    # Test setting a value in Redis
+    response = client.post("/set-value", params={"key": test_key, "value": test_value})
+    assert response.status_code == 200
+    assert response.json() == {"message": "Value set successfully"}
 
     # Test retrieving the value
-    retrieved_value = get_value(test_key)
-    assert retrieved_value == test_value, "Retrieved value does not match expected result."
-
-    # Clean up the test data
-    redis_client.delete(test_key)
+    response = client.get(f"/get-value/{test_key}")
+    assert response.status_code == 200
+    assert response.json() == {"key": test_key, "value": test_value}
+    # Clean up the test by deleting the test key
+    get_redis_client().delete(test_key)

@@ -1,0 +1,2 @@
+# Run every hour 
+0 * * * * python gradescope_to_spreadsheet.py >> /var/log/cron.log 2>&1

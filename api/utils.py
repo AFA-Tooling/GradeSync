@@ -78,36 +78,26 @@ def handle_errors(func):
             raise HTTPException(status_code=500, detail="An unexpected server error occurred.")
     return wrapper
 
-from functools import wraps
-
 def gradescope_session(client):
     """
     A decorator to log in and log out to GradeScope.
+    After `GRADESCOPE_TIMEOUT` seconds of inactivity, the client automatically logs out.
     """
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
             try:
-                # Log in before executing the function
+                # Refresh the GradescopeClient inactivity period and log in again
+                # if we were logged out automatically
                 client.log_in(GRADESCOPE_EMAIL, GRADESCOPE_PASSWORD)
-                print("Logged in to Gradescope")
-                
                 # Execute the decorated function
                 return func(*args, **kwargs)
-            
             except Exception as e:
                 return {"message": "Unknown error: " + str(e)}
-            
-            finally:
-                # Ensure logout occurs, even if an error happens
-                try:
-                    client.logout()
-                    print("Logged out of Gradescope")
-                except Exception as logout_error:
-                    print(f"Logout failed: {logout_error}")
 
         return wrapper
     return decorator
+
 
 def convert_course_info_to_json(course_info_response: str):
     """
@@ -235,3 +225,65 @@ def convert_course_info_to_json(course_info_response: str):
         assignment_to_categories[category] = sorted_items
 
     return assignment_to_categories
+
+def extract_assignment_ids(sub_dict: dict):
+    """
+    Extracts all assignment IDs from a nested dictionary.
+
+    Parameters:
+        - sub_dict (dict): A dictionary that may contain nested dictionaries with one or more "assignment_id" keys.
+            - Example structure: {"hw": {"score": 4, "assignment_id": 12345, ...}}
+    
+    Output:
+        - A list of assignment id's as strings: ["######", "######", ...., "######"]
+    """
+
+    assignment_ids = []
+    for _, value in sub_dict.items():
+        if isinstance(value, dict):
+            if 'assignment_id' in value:
+                assignment_ids.append([value["title"], value['assignment_id']])
+            else:
+                assignment_ids.extend(extract_assignment_ids(value))  # Recursively handle nested dictionaries
+    return assignment_ids
+
+def get_assignment_ids_for_category(data_dict: dict, category: str) -> list:
+    """
+    Get all the assignment IDs for one category
+
+    Parameters:
+        - data_dict: a dictionary
+        - category: a key value in data_dict 
+
+    Output:
+        - A list of assignment id's as strings: ["######", "######", ...., "######"]
+    """
+
+    if category not in data_dict:
+        print(f"Category: {category} not found")
+        return
+    
+    category_data = data_dict[category]
+    return extract_assignment_ids(category_data)
+
+
+def get_ids_for_all_assignments(data_dict: dict) -> list:
+    """
+    Extract the assignment id's and titles for all assignments (lecture, labs, projects, etc)
+
+    Input: 
+        - Output of the function get_assignment_info()
+
+    Return: 
+        - A list of assignment titles and ids
+
+    Example output:
+        [["Lecture 1: Quiz", "#######"], ["Lab 4: Conceptual", "########"], ..... , ["Midterm Fractal", "#######"]]
+    """
+    all_assignment_ids = []
+    
+    for category in data_dict.keys():
+        ids_for_category = get_assignment_ids_for_category(data_dict, category)
+        if isinstance(ids_for_category, list):  # Make sure it's a list of IDs
+            all_assignment_ids.extend(ids_for_category)
+    return all_assignment_ids

@@ -1,15 +1,12 @@
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
-# https://pypi.org/project/fullGSapi/
-from fullGSapi.api import client
+from gradescopeClient import GradescopeClient
 import os
 import json 
 from utils import *
 
 app = FastAPI()
-# Load environment variables from the .env file
-GRADESCOPE_CLIENT = client.GradescopeClient()
-
+GRADESCOPE_CLIENT = GradescopeClient()
 # Load JSON variables
 config_path = os.path.join(os.path.dirname(__file__), "config.json")
 with open(config_path, "r") as config_file:
@@ -194,3 +191,54 @@ def get_assignment_id(category_type: str, assignment_number: int, lab_type: int 
 
     # Return assignment ID if found for categories other than "labs"
     return {"assignment_id": assignment_data.get("assignment_id", "Assignment ID not found.")}
+
+
+@app.get("/fetchAllGrades")
+@handle_errors
+def fetchAllGrades(class_id: str = None):
+    """
+    Fetch Grades for all assignments for all students
+
+    Parameters:
+    - class_id (str, optional): The ID of the class for which assignments are being retrieved. 
+      Defaults to `None`.
+
+    Returns:
+    - JSON
+    
+    # TODO: In the database design, consider if the assignmentID should be the primary key.
+    # TODO: In this function, consider if we need both the assignmentID and title in this JSON
+    # TODO: Create a database table mapping assignmentIDs to titles?
+    Example Output:
+    {
+        "Lecture Quiz 1: Welcome to CS10 u0026 Abstraction": [
+            {
+            "Name": "test2",
+            "SID": "",
+            "Email": "test2@test.com",
+            "Total Score": "",
+            "Max Points": "4.0",
+            "Status": "Missing",
+            "Submission ID": null,
+            "Submission Time": null,
+            "Lateness (H:M:S)": null,
+            "View Count": null,
+            "Submission Count": null,
+            "1: Lists (1.0 pts)": null,
+            "2: Map, Keep, and Combine (1.0 pts)": null,
+            "3: Using HOFs (1.0 pts)": null,
+            "4: Loops (1.0 pts)": null
+            },
+            ...,
+        ], 
+        .....
+    }
+    """
+    class_id = class_id or COURSE_ID
+    assignment_info = get_assignment_info()
+    all_ids = get_ids_for_all_assignments(assignment_info)
+
+    all_grades = {}
+    for title, one_id in all_ids:
+        all_grades[title] = fetchGrades(class_id, one_id)
+    return all_grades

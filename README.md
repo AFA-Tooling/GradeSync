@@ -14,12 +14,12 @@ GradeSync is a backend microservice that integrates with assessment platforms to
 ### How to Launch the App
 
 1. Open the Docker desktop application.
-2. In the terminal, navigate to the `/api` directory of this project.
+2. In the terminal, navigate to the `/gradesync` directory of this project, which is the root directory.
 3. Build the Docker image using `docker-compose build`.
 4. Start the application with `docker-compose up`.
 5. Confirm the application is running by opening [http://localhost:8000/](http://localhost:8000/) on a browser.
 6. Test endpoints with a tool like ThunderClient or Postman.
 - Go to VSCode extensions, and add "ThunderClient" to your extensions.
 - Click "New Request" to test the API endpoints.
-- Also, create test cases in `api/test_app.py`.
+- Also, create test cases in `api/tests/test_app.py`.
 7. When you are finished, run `docker-compose down` or press CTRL+C to stop the server.

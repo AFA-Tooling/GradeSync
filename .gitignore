@@ -1,1 +1,7 @@
+__pycache__/
+api/.env
+api/.pytest_cache
+api/.coverage
+.coverage
+.vscode/
 **/*.env

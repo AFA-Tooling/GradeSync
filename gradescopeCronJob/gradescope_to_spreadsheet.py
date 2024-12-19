@@ -370,6 +370,11 @@ def populate_spreadsheet_gradebook(assignment_id_to_names, sheet_api_instance):
     midterms = set(filter(filter_by_assignment_category("midterm"), assignment_names))
     new_midterms = midterms - set(preexisting_midterm_columns)
 
+    filter_postterms = lambda assignment: (("postterm" in assignment.lower()) or ("posterm" in assignment.lower())) and ("discussion" not in assignment.lower())
+
+    preexisting_postterm_columns = retrieve_preexisting_columns("Postterms", sheet_api_instance)
+    postterms = set(filter(filter_postterms, assignment_names))
+    new_postterms = postterms - set(preexisting_postterm_columns)
 
     def extract_number_from_assignment_title(assignment):
         """
@@ -386,6 +391,7 @@ def populate_spreadsheet_gradebook(assignment_id_to_names, sheet_api_instance):
     sorted_new_projects = sorted(new_projects, key=extract_number_from_assignment_title)
     sorted_new_lecture_quizzes = sorted(new_lecture_quizzes, key=extract_number_from_assignment_title)
     sorted_new_midterms = sorted(new_midterms, key=extract_number_from_assignment_title)
+    sorted_new_postterms = sorted(new_postterms, key=extract_number_from_assignment_title)
 
     formula_list = [GRADE_RETRIEVAL_SPREADSHEET_FORMULA] * NUMBER_OF_STUDENTS
     discussion_formula_list = [DISCUSSION_COMPLETION_INDICATOR_FORMULA]
@@ -411,12 +417,14 @@ def populate_spreadsheet_gradebook(assignment_id_to_names, sheet_api_instance):
     sorted_projects = preexisting_project_columns + sorted_new_projects
     sorted_lecture_quizzes = preexisting_lecture_quiz_columns + sorted_new_lecture_quizzes
     sorted_midterms = preexisting_midterm_columns + sorted_new_midterms
+    sorted_postterms = preexisting_postterm_columns + sorted_new_postterms
 
     produce_gradebook_for_category(sorted_labs, "Labs", formula_list)
     produce_gradebook_for_category(sorted_discussions, "Discussions", discussion_formula_list)
     produce_gradebook_for_category(sorted_projects, "Projects", formula_list)
     produce_gradebook_for_category(sorted_lecture_quizzes, "Lecture Quizzes", formula_list)
     produce_gradebook_for_category(sorted_midterms, "Midterms", formula_list)
+    produce_gradebook_for_category(sorted_postterms, "Postterms", formula_list)
 
 
 def create_request_to_add_assignment_column_titles(assignments, type):

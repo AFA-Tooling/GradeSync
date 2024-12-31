@@ -1,0 +1,12 @@
+[run]
+branch = True
+# Enables branch coverage for testing all execution paths in conditionals
+
+[report]
+show_missing = True
+# Shows which lines are missing from coverage in the report
+
+[paths]
+source =
+    api
+# Specify the source directory for measuring coverage

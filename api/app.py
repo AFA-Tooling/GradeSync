@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse, PlainTextResponse
-from gradescopeClient import GradescopeClient
-from utils import *
+from api.gradescopeClient import GradescopeClient
+from api.utils import *
 import gspread
 from google.oauth2.service_account import Credentials
 from backoff_utils import strategies

@@ -69,6 +69,7 @@ NUM_LECTURES = config["NUM_LECTURES"]
 # Used for labs with 4 parts (very uncommon)
 SPECIAL_CASE_LABS = config["SPECIAL_CASE_LABS"]
 
+INCLUDE_PYTURIS = config["INCLUDE_PYURIS"]
 PYTURIS_ASSIGNMENT_ID = str(config["PYTURIS_ASSIGNMENT_ID"])
 PL_ASSIGNMENT_COLUMN_ORDER = [
     "user_name", "user_id", "points", "max_points", "score_perc",
@@ -336,7 +337,8 @@ def push_all_grade_data_to_sheets():
     assignment_id_to_names = get_assignment_id_to_names(gradescope_client)
     sheet_api_instance = create_sheet_api_instance()
     get_sub_sheet_titles_to_ids(sheet_api_instance)
-    push_pl_assignment_csv_to_gradebook(PYTURIS_ASSIGNMENT_ID, "Pyturis")
+    if INCLUDE_PYTURIS:
+        push_pl_assignment_csv_to_gradebook(PYTURIS_ASSIGNMENT_ID, "Pyturis")
 
     populate_spreadsheet_gradebook(assignment_id_to_names, sheet_api_instance)
     make_batch_request(sheet_api_instance) #

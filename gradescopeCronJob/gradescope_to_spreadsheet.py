@@ -69,9 +69,17 @@ NUM_LECTURES = config["NUM_LECTURES"]
 # Used for labs with 4 parts (very uncommon)
 SPECIAL_CASE_LABS = config["SPECIAL_CASE_LABS"]
 
-INCLUDE_PYTURIS = config["INCLUDE_PYTURIS"]
-
 PYTURIS_ASSIGNMENT_ID = str(config["PYTURIS_ASSIGNMENT_ID"])
+PL_ASSIGNMENT_COLUMN_ORDER = [
+    "user_name", "user_id", "points", "max_points", "score_perc",
+    "highest_score", "assessment_number", "modified_at", "assessment_name",
+    "start_date", "assessment_title", "assessment_label", "user_role",
+    "duration_seconds", "group_name", "time_remaining", "assessment_id",
+    "group_id", "user_uid", "assessment_instance_number",
+    "assessment_set_abbreviation", "group_uids", "assessment_instance_id",
+    "open", "max_bonus_points"
+]
+
 
 # These constants are depracated. The following explanation is for what their purpose was. ASSIGNMENT_ID constant is for users who wish to generate a sub-sheet (not update the dashboard) for one assignment, passing it as a parameter.
 ASSIGNMENT_ID = (len(sys.argv) > 1) and sys.argv[1]
@@ -443,7 +451,7 @@ def create_request_to_add_assignment_column_titles(assignments, type):
 
 def retrieve_PL_scores_for_one_assignment(assignment_id):
     """
-    This function is here so that Pyturis grades can be added to the sheet, per Dan's request. Pyturis functionality is not implemented yet.
+    This function is here so that Pyturis grades can be added to the sheet, per Dan's request.
 
     Fetches student grades for one assignment from PrairieLearn as JSON.
 
@@ -470,7 +478,8 @@ def make_csv_for_one_PL_assignment(json_assignment_scores):
     TODO: Add parameters and return value in this docstring.
     """
     output = io.StringIO()
-    first_columns = ["user_name", "user_id", "points", "max_points", "score_perc", "highest_score"]
+    first_columns = PL_ASSIGNMENT_COLUMN_ORDER
+
     additional_columns = json_assignment_scores[0].keys() - set(first_columns)
     ordered_fields = first_columns + list(additional_columns)
     writer = csv.DictWriter(output, fieldnames=ordered_fields)

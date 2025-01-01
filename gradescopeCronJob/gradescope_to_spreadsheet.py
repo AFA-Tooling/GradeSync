@@ -70,8 +70,16 @@ NUM_LECTURES = config["NUM_LECTURES"]
 SPECIAL_CASE_LABS = config["SPECIAL_CASE_LABS"]
 
 INCLUDE_PYTURIS = config["INCLUDE_PYTURIS"]
-
 PYTURIS_ASSIGNMENT_ID = str(config["PYTURIS_ASSIGNMENT_ID"])
+PL_ASSIGNMENT_COLUMN_ORDER = [
+    "user_name", "user_id", "points", "max_points", "score_perc",
+    "highest_score", "assessment_number", "modified_at", "assessment_name",
+    "start_date", "assessment_title", "assessment_label", "user_role",
+    "duration_seconds", "group_name", "time_remaining", "assessment_id",
+    "group_id", "user_uid", "assessment_instance_number",
+    "assessment_set_abbreviation", "group_uids", "assessment_instance_id",
+    "open", "max_bonus_points"
+]
 
 # These constants are depracated. The following explanation is for what their purpose was. ASSIGNMENT_ID constant is for users who wish to generate a sub-sheet (not update the dashboard) for one assignment, passing it as a parameter.
 ASSIGNMENT_ID = (len(sys.argv) > 1) and sys.argv[1]
@@ -328,7 +336,8 @@ def push_all_grade_data_to_sheets():
     assignment_id_to_names = get_assignment_id_to_names(gradescope_client)
     sheet_api_instance = create_sheet_api_instance()
     get_sub_sheet_titles_to_ids(sheet_api_instance)
-    push_pl_assignment_csv_to_gradebook(PYTURIS_ASSIGNMENT_ID, "Pyturis")
+    if INCLUDE_PYTURIS:
+        push_pl_assignment_csv_to_gradebook(PYTURIS_ASSIGNMENT_ID, "Pyturis")
 
     populate_spreadsheet_gradebook(assignment_id_to_names, sheet_api_instance)
     make_batch_request(sheet_api_instance) #
@@ -470,7 +479,7 @@ def make_csv_for_one_PL_assignment(json_assignment_scores):
     TODO: Add parameters and return value in this docstring.
     """
     output = io.StringIO()
-    first_columns = ["user_name", "user_id", "points", "max_points", "score_perc", "highest_score"]
+    first_columns = PL_ASSIGNMENT_COLUMN_ORDER
     additional_columns = json_assignment_scores[0].keys() - set(first_columns)
     ordered_fields = first_columns + list(additional_columns)
     writer = csv.DictWriter(output, fieldnames=ordered_fields)

@@ -1,4 +1,0 @@
-__pycache__/
-# environment variables
-.env
-.pytest_cache

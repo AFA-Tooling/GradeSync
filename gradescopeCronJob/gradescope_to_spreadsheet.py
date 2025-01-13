@@ -57,17 +57,6 @@ SPREADSHEET_ID = config["SPREADSHEET_ID"]
 
 # Course metadata
 NUMBER_OF_STUDENTS = config["NUMBER_OF_STUDENTS"]
-NUM_LECTURE_DROPS = config["NUM_LECTURE_DROPS"]
-
-# Lab number of labs that are not graded.
-UNGRADED_LABS = config["UNGRADED_LABS"]
-
-# Used only for Final grade calculation; not for display in the middle of the semester
-TOTAL_LAB_POINTS = config["TOTAL_LAB_POINTS"]
-NUM_LECTURES = config["NUM_LECTURES"]
-
-# Used for labs with 4 parts (very uncommon)
-SPECIAL_CASE_LABS = config["SPECIAL_CASE_LABS"]
 
 INCLUDE_PYTURIS = config["INCLUDE_PYTURIS"]
 PYTURIS_ASSIGNMENT_ID = str(config["PYTURIS_ASSIGNMENT_ID"])
@@ -81,7 +70,7 @@ PL_ASSIGNMENT_COLUMN_ORDER = [
     "open", "max_bonus_points"
 ]
 
-# These constants are depracated. The following explanation is for what their purpose was. ASSIGNMENT_ID constant is for users who wish to generate a sub-sheet (not update the dashboard) for one assignment, passing it as a parameter.
+# These constants are deprecated. The following explanation is for what their purpose was. ASSIGNMENT_ID constant is for users who wish to generate a sub-sheet (not update the dashboard) for one assignment, passing it as a parameter.
 ASSIGNMENT_ID = (len(sys.argv) > 1) and sys.argv[1]
 ASSIGNMENT_NAME = (len(sys.argv) > 2) and sys.argv[2]
 """

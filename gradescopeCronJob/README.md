@@ -63,19 +63,7 @@
 
    - **SPREADSHEET_ID**: The spreadsheet ID is the final component of the spreadsheet’s URL: `https://docs.google.com/spreadsheets/d/[SPREADSHEET_ID]/edit?gid=0#gid=0`
 
-   - **NUMBER_OF_STUDENTS**: The number of students enrolled in the course.
-
-   - **UNGRADED_LABS**: Some labs are not included in the final grade calculation. `UNGRADED_LABS` is a list of such labs. For example, if labs 5 and 6 are not included, set `UNGRADED_LABS` to `[5, 6]`.
-
-   - **TOTAL_LAB_POINTS**: Used only for the final grade calculation; this is the total number of lab points in a semester.
-
-   - **NUM_LECTURES**: Used only for the final lecture-quiz grade calculation.
-
-   - **SPECIAL_CASE_LABS**: A list of 4-part labs (lab assignments with four dropboxes, instead of the typical one or two).
-
-   - **NUM_LECTURE_DROPS**: The number of drops included in the lecture-quiz grade calculation.
-
-   - **NUM_LECTURE_DROPS**: The number of drops included in the lecture-quiz grade calculation.
+   - **NUMBER_OF_STUDENTS**: Please enter a number **greater than** the total number of students, to account for late adds. There is no harm in choosing a NUMBER_OF_STUDENTS greater than the actual number.
 
 ---
 

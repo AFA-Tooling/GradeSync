@@ -404,7 +404,7 @@ def push_all_grade_data_to_sheets():
         push_pl_assignment_csv_to_gradebook(PYTURIS_ASSIGNMENT_ID, "Pyturis")
 
     populate_spreadsheet_gradebook(assignment_id_to_names, sheet_api_instance)
-    make_batch_request(sheet_api_instance) #
+    make_batch_request(sheet_api_instance)
 
     for id in assignment_id_to_names:
         prepare_request_for_one_assignment(sheet_api_instance, gradescope_client=gradescope_client,

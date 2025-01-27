@@ -426,7 +426,7 @@ def populate_spreadsheet_gradebook(assignment_id_to_names, sheet_api_instance):
     """
     is_not_optional =  lambda assignment: not "optional" in assignment.lower()
     assignment_names = set(filter(is_not_optional, assignment_id_to_names.values()))
-    # The below code is used to filter assignments by category when populating the instructor dashboard
+    # The below code is used to filter assignments by category when populating the gradebook.
     filter_by_assignment_category = lambda category: lambda assignment: category in assignment.lower()
 
     preexisting_lab_columns = retrieve_preexisting_columns("Labs", sheet_api_instance)

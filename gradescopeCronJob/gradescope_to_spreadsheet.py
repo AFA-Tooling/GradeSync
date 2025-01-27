@@ -70,7 +70,7 @@ PL_ASSIGNMENT_COLUMN_ORDER = [
     "open", "max_bonus_points"
 ]
 
-# These constants are deprecated. The following explanation is for what their purpose was. ASSIGNMENT_ID constant is for users who wish to generate a sub-sheet (not update the dashboard) for one assignment, passing it as a parameter.
+# These constants are deprecated. The following explanation is for what their purpose was: ASSIGNMENT_ID is for users who wish to generate a sub-sheet (not update the dashboard) for one assignment. ASSIGNMENT_NAME specifies the name of the subsheet where grades for the assignment are to be stored. They are populated using the first and second command-line args respectively.
 ASSIGNMENT_ID = (len(sys.argv) > 1) and sys.argv[1]
 ASSIGNMENT_NAME = (len(sys.argv) > 2) and sys.argv[2]
 """

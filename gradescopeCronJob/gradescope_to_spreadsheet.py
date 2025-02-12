@@ -44,6 +44,8 @@ logger = logging.getLogger(__name__)
 logger.info("Starting the gradescope_to_spreadsheet script.")
 
 # Load JSON variables
+# Note: this class JSON name can be made customizable, inputted through a front end user interface for example
+# But the default is cs10_fall2024.json
 class_json_name = 'cs10_fall2024.json'
 config_path = os.path.join(os.path.dirname(__file__), 'config/', class_json_name)
 with open(config_path, "r") as config_file:
@@ -58,6 +60,7 @@ SPREADSHEET_ID = config["SPREADSHEET_ID"]
 # Course metadata
 NUMBER_OF_STUDENTS = config["NUMBER_OF_STUDENTS"]
 
+# Pyturis is a specific assignment from PrarieLearn from CS 10.
 INCLUDE_PYTURIS = config["INCLUDE_PYTURIS"]
 PYTURIS_ASSIGNMENT_ID = str(config["PYTURIS_ASSIGNMENT_ID"])
 PL_ASSIGNMENT_COLUMN_ORDER = [
@@ -70,7 +73,12 @@ PL_ASSIGNMENT_COLUMN_ORDER = [
     "open", "max_bonus_points"
 ]
 
-# These constants are deprecated. The following explanation is for what their purpose was: ASSIGNMENT_ID is for users who wish to generate a sub-sheet (not update the dashboard) for one assignment. ASSIGNMENT_NAME specifies the name of the subsheet where grades for the assignment are to be stored. They are populated using the first and second command-line args respectively.
+# These constants are deprecated. 
+# The following explanation is for what their purpose was: 
+# ASSIGNMENT_ID is for users who wish to generate a sub-sheet (not update the dashboard) for one assignment. 
+# ASSIGNMENT_NAME specifies the name of the subsheet where grades for the assignment are to be stored. 
+# They are populated using the first and second command-line args respectively.
+
 ASSIGNMENT_ID = (len(sys.argv) > 1) and sys.argv[1]
 ASSIGNMENT_NAME = (len(sys.argv) > 2) and sys.argv[2]
 """
@@ -79,11 +87,12 @@ Explanation of GRADE_RETRIEVAL_SPREADSHEET_FORMULA:
 [Range of sid in assignment subsheet as a string] =INDIRECT( [Name of assignment subsheet] & [Column range of sids in assignment subsheet])
 [Name of assignment subsheet, as retrieved from first cell in column] =INDIRECT(ADDRESS(1, COLUMN(), 4))
 
-DISCUSSION_COMPLETION_INDICATOR_FORMULA uses similar logic, but includes a condition that checks whether a discussion has been submitted or is missing. A submitted discussion is awarded full credit; discussions are not manually graded.
+DISCUSSION_COMPLETION_INDICATOR_FORMULA uses similar logic, but includes a condition that checks whether a discussion has been submitted or is missing. 
+A submitted discussion is awarded full credit; discussions are not manually graded.
 """
+# Updated these two lines, given the updated CSV return format of GradeScope
 GRADE_RETRIEVAL_SPREADSHEET_FORMULA = '=XLOOKUP(C:C, INDIRECT( INDIRECT(ADDRESS(1, COLUMN(), 4)) & "!C:C"), INDIRECT(INDIRECT(ADDRESS(1, COLUMN(), 4)) & "!F:F"))'
 DISCUSSION_COMPLETION_INDICATOR_FORMULA = '=ARRAYFORMULA(IF(INDIRECT( INDIRECT(ADDRESS(1, COLUMN(), 4)) & "!H:H")="Missing", 0,  IF(A:A<>"", 1, "")))'
-
 
 # This is not a constant; it is a variable that needs global scope. It should not be modified by the user
 subsheet_titles_to_ids = None
@@ -92,6 +101,7 @@ number_of_retries_needed_to_update_sheet = 0
 
 request_list = []
 
+# Define a depracated decorator to warn users about deprecated functions.
 def deprecated(func):
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
@@ -103,13 +113,15 @@ def deprecated(func):
         return func(*args, **kwargs)
     return wrapper
 
+# Connect the script to the Google Sheets API through authorizing the google cloud service account
+# The service account is created in order to automatically run the script in a Google Cloud Run Service through the docker containerization of a cron job.
 credentials_json = os.getenv("SERVICE_ACCOUNT_CREDENTIALS")
 credentials_dict = json.loads(credentials_json)
 credentials = Credentials.from_service_account_info(credentials_dict, scopes=SCOPES)
 client = gspread.authorize(credentials)
 
 
-def create_sheet_and__request_to_populate_it(sheet_api_instance, assignment_scores, assignment_name = ASSIGNMENT_NAME):
+def create_sheet_and_request_to_populate_it(sheet_api_instance, assignment_scores, assignment_name = ASSIGNMENT_NAME):
     """
     Creates a sheet and adds the request that will populate the sheet to request_list.
 
@@ -151,7 +163,8 @@ def create_sheet_and__request_to_populate_it(sheet_api_instance, assignment_scor
 
 def create_sheet_api_instance():
     """
-    Creates a sheet api instance
+    Creates a sheet api instance through the googleapiclient library.
+    The build function references "from googleapiclient.discovery import build" in the imports.
 
     Returns:
         googleapiclient.discovery.Resource: The sheet api instance.
@@ -163,7 +176,7 @@ def create_sheet_api_instance():
 
 def get_sub_sheet_titles_to_ids(sheet_api_instance):
     """
-    If subsheet_titles_to_ids, a dict mapping subsheet titles to sheet ids has already been created,
+    If subsheet_titles_to_ids, a dict mapping subsheet titles to sheet ids, has already been created,
     return it. If not, retrieve that info from Google sheets.
 
     Args:
@@ -217,7 +230,8 @@ def store_request(request):
     Stores a request in a running list, request_list, to be executed in a batch request.
 
     Args:
-        request (dict): A Google sheets API pasteData request with the schema defined here: https://developers.google.com/sheets/api/reference/rest/v4/spreadsheets/request#PasteDataRequest
+        request (dict): A Google sheets API pasteData request with the schema defined here: 
+        https://developers.google.com/sheets/api/reference/rest/v4/spreadsheets/request#PasteDataRequest
     Returns:
         None
     """
@@ -253,7 +267,8 @@ def assemble_rest_request_for_assignment(assignment_scores, sheet_id, rowIndex =
         rowIndex (int): Index of the row of the cell where grades are to be pasted.
         columnIndex (int): Index of the column of the cell where grades are to be pasted.
     Returns:
-        dict: A Google sheets API pasteData request with the schema defined here: https://developers.google.com/sheets/api/reference/rest/v4/spreadsheets/request#PasteDataRequest
+        dict: A Google sheets API pasteData request with the schema defined here: 
+        https://developers.google.com/sheets/api/reference/rest/v4/spreadsheets/request#PasteDataRequest
     """
     push_grade_data_rest_request = {
             'pasteData': {
@@ -346,7 +361,7 @@ def prepare_request_for_one_assignment(sheet_api_instance, gradescope_client, as
         None
     """
     assignment_scores = retrieve_grades_from_gradescope(gradescope_client = gradescope_client, assignment_id = assignment_id)
-    create_sheet_and__request_to_populate_it(sheet_api_instance, assignment_scores, assignment_name)
+    create_sheet_and_request_to_populate_it(sheet_api_instance, assignment_scores, assignment_name)
 
 
 def get_assignment_id_to_names(gradescope_client):
@@ -400,16 +415,20 @@ def push_all_grade_data_to_sheets():
     assignment_id_to_names = get_assignment_id_to_names(gradescope_client)
     sheet_api_instance = create_sheet_api_instance()
     get_sub_sheet_titles_to_ids(sheet_api_instance)
+
+    # Pyturis is an assignment specific to the CS10 course. It is retrieved from the PrarieLearn version of the course.
     if INCLUDE_PYTURIS:
         push_pl_assignment_csv_to_gradebook(PYTURIS_ASSIGNMENT_ID, "Pyturis")
 
     populate_spreadsheet_gradebook(assignment_id_to_names, sheet_api_instance)
     make_batch_request(sheet_api_instance)
 
+    # For all assignments, create the request for each assignment
     for id in assignment_id_to_names:
         prepare_request_for_one_assignment(sheet_api_instance, gradescope_client=gradescope_client,
                                                                assignment_name=assignment_id_to_names[id], assignment_id=id)
 
+    # Create the batch google sheet request in order to populate the google sheet
     make_batch_request(sheet_api_instance)
 
 
@@ -426,25 +445,31 @@ def populate_spreadsheet_gradebook(assignment_id_to_names, sheet_api_instance):
     """
     is_not_optional =  lambda assignment: not "optional" in assignment.lower()
     assignment_names = set(filter(is_not_optional, assignment_id_to_names.values()))
+    
     # The below code is used to filter assignments by category when populating the gradebook.
     filter_by_assignment_category = lambda category: lambda assignment: category in assignment.lower()
 
+    # Labs
     preexisting_lab_columns = retrieve_preexisting_columns("Labs", sheet_api_instance)
     labs = set(filter(filter_by_assignment_category("lab"), assignment_names))
     new_labs = labs - set(preexisting_lab_columns)
 
+    # Discussions
     preexisting_discussion_columns = retrieve_preexisting_columns("Discussions", sheet_api_instance)
     discussions = set(filter(filter_by_assignment_category("discussion"), assignment_names))
     new_discussions = discussions - set(preexisting_discussion_columns)
 
+    # Projects
     preexisting_project_columns = retrieve_preexisting_columns("Projects", sheet_api_instance)
     projects = set(filter(filter_by_assignment_category("project"), assignment_names))
     new_projects = projects - set(preexisting_project_columns)
 
+    # Quizzes
     preexisting_lecture_quiz_columns = retrieve_preexisting_columns("Lecture Quizzes", sheet_api_instance)
     lecture_quizzes = set(filter(filter_by_assignment_category("lecture"), assignment_names))
     new_lecture_quizzes = lecture_quizzes - set(preexisting_lecture_quiz_columns)
 
+    # Midterms
     preexisting_midterm_columns = retrieve_preexisting_columns("Midterms", sheet_api_instance)
     midterms = set(filter(filter_by_assignment_category("midterm"), assignment_names))
     new_midterms = midterms - set(preexisting_midterm_columns)
@@ -471,6 +496,7 @@ def populate_spreadsheet_gradebook(assignment_id_to_names, sheet_api_instance):
         return 0
 
 
+    # Sort all assignments and exams by number
     sorted_new_labs = sorted(new_labs, key=extract_number_from_assignment_title)
     sorted_new_discussions = sorted(new_discussions, key=extract_number_from_assignment_title)
     sorted_new_projects = sorted(new_projects, key=extract_number_from_assignment_title)
@@ -478,6 +504,7 @@ def populate_spreadsheet_gradebook(assignment_id_to_names, sheet_api_instance):
     sorted_new_midterms = sorted(new_midterms, key=extract_number_from_assignment_title)
     sorted_new_postterms = sorted(new_postterms, key=extract_number_from_assignment_title)
 
+    # The following formulas are used to retrieve grades from the gradebook.
     formula_list = [GRADE_RETRIEVAL_SPREADSHEET_FORMULA] * NUMBER_OF_STUDENTS
     discussion_formula_list = [DISCUSSION_COMPLETION_INDICATOR_FORMULA]
 
@@ -502,8 +529,10 @@ def populate_spreadsheet_gradebook(assignment_id_to_names, sheet_api_instance):
         grade_df.to_csv(output)
         grades_as_csv = output.getvalue()
         output.close()
+
         assemble_rest_request_for_assignment(grades_as_csv, sheet_id=subsheet_titles_to_ids[category], rowIndex=0, columnIndex=3)
 
+    # Append the preexisting assignments and exams to the new, retrieved assignments and exams
     sorted_labs = preexisting_lab_columns + sorted_new_labs
     sorted_discussions = preexisting_discussion_columns + sorted_new_discussions
     sorted_projects = preexisting_project_columns + sorted_new_projects
@@ -511,6 +540,7 @@ def populate_spreadsheet_gradebook(assignment_id_to_names, sheet_api_instance):
     sorted_midterms = preexisting_midterm_columns + sorted_new_midterms
     sorted_postterms = preexisting_postterm_columns + sorted_new_postterms
 
+    # Create the gradebook for each category
     produce_gradebook_for_category(sorted_labs, "Labs", formula_list)
     produce_gradebook_for_category(sorted_discussions, "Discussions", discussion_formula_list)
     produce_gradebook_for_category(sorted_projects, "Projects", formula_list)
@@ -621,6 +651,7 @@ def main():
 
     The number of api calls the script makes is constant with respect to the number of assignments. The number of calls = [Number of categories of assignments] + 2
     """
+    # Use the logger to calculate the amount of time for starting and completing the request.
     start_time = time.time()
     push_all_grade_data_to_sheets()
     end_time = time.time()

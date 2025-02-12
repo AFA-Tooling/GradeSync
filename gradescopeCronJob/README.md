@@ -192,3 +192,8 @@ Push the Docker image to Google Cloud Artifact Registry:
 ```bash
 docker push us-west2-docker.pkg.dev/eecs-gradeview/gradescopecronjob/gradescope-cron-job
 ```
+
+## Additional Notes
+### Cron Job
+The cron job, located in ```cronjob``` is scheduled to run at the start of every hour, as indicated by 0 * * * *, meaning it executes at minute 0 of every hour, every day, and every month. It runs under the root user, ensuring it has the necessary permissions. The command being executed is timeout 300 /gradescopeCronJob/gradescope_to_spreadsheet.py, which runs the script while enforcing a maximum execution time of 300 seconds (5 minutes). If the script exceeds this limit, it will be forcibly terminated. This setup ensures the script runs automatically at regular intervals without exceeding the allowed runtime.
+

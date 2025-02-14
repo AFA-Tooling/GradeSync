@@ -35,7 +35,7 @@ logging.basicConfig(
     level=logging.INFO,  # or DEBUG for more detail
     format="%(asctime)s - %(levelname)s - %(message)s",
     handlers=[
-        # logging.FileHandler("/var/log/cron.log"),  # Logs to file, comment out line for local testing ONLY
+        logging.FileHandler("/var/log/cron.log"),  # Logs to file, comment out line for local testing ONLY
         logging.StreamHandler(sys.stdout)  # Logs to console (stdout)
     ]
 )

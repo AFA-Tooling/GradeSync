@@ -22,9 +22,9 @@ with open(config_path, "r") as config_file:
     config = json.load(config_file)
 
 # Hardcoded (for now) GradeScope CS10 Fall 2024 COURSE ID
-CS_10_GS_COURSE_ID = str(config.get("CS_10_GS_COURSE_ID"))
+CS_10_GS_COURSE_ID = str(config.get("GRADESCOPE_COURSE_ID"))
 # Hardcoded (for now) PL CS10 Summer 2024 COURSE ID
-CS_10_PL_COURSE_ID = str(config.get("CS_10_PL_COURSE_ID"))
+CS_10_PL_COURSE_ID = str(config.get("PL_COURSE_ID"))
 PL_API_TOKEN = os.getenv("PL_API_TOKEN")
 PL_SERVER = "https://us.prairielearn.com/pl/api/v1"
 

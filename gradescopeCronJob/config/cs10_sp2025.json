@@ -1,0 +1,9 @@
+{
+  "GRADESCOPE_COURSE_ID": "",
+  "SCOPES": ["https://www.googleapis.com/auth/spreadsheets"],
+  "SPREADSHEET_ID": "",
+  "NUMBER_OF_STUDENTS": 192,
+  "PL_COURSE_ID": "",
+  "INCLUDE_PYTURIS": false,
+  "PYTURIS_ASSIGNMENT_ID": 2452829
+}

@@ -61,8 +61,8 @@ SPREADSHEET_ID = config["SPREADSHEET_ID"]
 NUMBER_OF_STUDENTS = config["NUMBER_OF_STUDENTS"]
 
 # Pyturis is a specific assignment from PrarieLearn from CS 10.
-INCLUDE_PYTURIS = config["INCLUDE_PYTURIS"]
-PYTURIS_ASSIGNMENT_ID = str(config["PYTURIS_ASSIGNMENT_ID"])
+INCLUDE_ONE_PL_ASSIGNMENT = config["INCLUDE_ONE_PL_ASSIGNMENT"]
+ONE_PL_ASSIGNMENT_ID = str(config["ONE_PL_ASSIGNMENT_ID"])
 PL_ASSIGNMENT_COLUMN_ORDER = [
     "user_name", "user_id", "points", "max_points", "score_perc",
     "highest_score", "assessment_number", "modified_at", "assessment_name",
@@ -417,8 +417,8 @@ def push_all_grade_data_to_sheets():
     get_sub_sheet_titles_to_ids(sheet_api_instance)
 
     # Pyturis is an assignment specific to the CS10 course. It is retrieved from the PrarieLearn version of the course.
-    if INCLUDE_PYTURIS:
-        push_pl_assignment_csv_to_gradebook(PYTURIS_ASSIGNMENT_ID, "Pyturis")
+    if INCLUDE_ONE_PL_ASSIGNMENT:
+        push_pl_assignment_csv_to_gradebook(ONE_PL_ASSIGNMENT_ID, "PL Assignment")
 
     populate_spreadsheet_gradebook(assignment_id_to_names, sheet_api_instance)
     make_batch_request(sheet_api_instance)

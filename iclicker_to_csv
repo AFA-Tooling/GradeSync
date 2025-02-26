@@ -1,0 +1,59 @@
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait, Select
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.chrome.service import Service
+from webdriver_manager.chrome import ChromeDriverManager
+import time
+import requests
+from bs4 import BeautifulSoup
+
+def main():
+    # create selenium driver to bypass login credentials
+    service = Service(ChromeDriverManager().install())
+    driver = webdriver.Chrome(service=service)
+    # navigate to iclicker login page
+    driver.get('https://instructor.iclicker.com/#/onboard/login')
+    try:
+        # click campus portal login
+        WebDriverWait(driver, 20).until(EC.element_to_be_clickable((By.LINK_TEXT, "Sign in through your campus portal")))
+        driver.find_element(By.LINK_TEXT, "Sign in through your campus portal").click()
+        
+        # choose berkeley from university list dropdown
+        WebDriverWait(driver, 20).until(EC.visibility_of_element_located((By.ID, "institute")))
+        select_institution = Select(driver.find_element(By.ID, "institute"))
+        select_institution.select_by_visible_text("University of California Berkeley")
+        
+        # click let's go button
+        WebDriverWait(driver, 20).until(EC.element_to_be_clickable((By.CSS_SELECTOR, ".btn-primary")))
+        driver.find_element(By.CSS_SELECTOR, ".btn-primary").click()
+        
+        # send calnet username
+        WebDriverWait(driver, 10).until(EC.visibility_of_element_located((By.ID, 'username')))
+        driver.find_element(By.ID, 'username').send_keys('YOUR_USERNAME')
+        
+        # send calnet password
+        WebDriverWait(driver, 10).until(EC.visibility_of_element_located((By.ID, 'password')))
+        driver.find_element(By.ID, 'password').send_keys('YOUR_PASSWORD')
+        
+        # click sign in button
+        WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.NAME, 'submit')))
+        driver.find_element(By.NAME, 'submit').click()
+        
+        # wait for manual duo authentication
+        print("Please complete the Duo Push authentication now.")
+        
+        # click cs10 dummy
+        WebDriverWait(driver, 20).until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button[title='CS10 Dummy']"))).click()
+        
+        # click attendance
+        WebDriverWait(driver, 20).until(EC.element_to_be_clickable((By.XPATH, "//span[@class='course-link-title' and contains(text(), 'Attendance')]"))).click()
+        time.sleep(5)
+    
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        
+    # add beautiful soup web scraping
+
+if __name__ == '__main__':
+    main()

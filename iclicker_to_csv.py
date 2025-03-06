@@ -15,24 +15,22 @@ import pandas as pd
 
 load_dotenv()
 
-USERNAME = os.getenv("YOUR_USERNAME")
-PASSSWORD = os.getenv("YOUR_PASSWORD")
+ICLICKER_USERNAME = os.getenv("ICLICKER_USERNAME")
+ICLICKER_PASSWORD = os.getenv("ICLICKER_PASSWORD")
 
 def main():
-
-    # 1. Specify your download directory (ensure this folder exists)
-    download_dir = r"C:\Users\cathe\Documents\Github\GradeSync\iClickerTest\iClicker_csv"
+    # specify download directory (ensure this folder exists)
+    download_dir = r"/Users/sahanabharadwaj/Downloads/iClicker/iclicker_csv_exports"
     
-    # 2. Create ChromeOptions and set download preferences
+    # create chromeoptions and set download preferences
     chrome_options = Options()
     prefs = {
-        "download.default_directory": download_dir,  # Change this to your path
+        "download.default_directory": download_dir,
         "download.prompt_for_download": False,
         "download.directory_upgrade": True,
         "plugins.always_open_pdf_externally": True
     }
     chrome_options.add_experimental_option("prefs", prefs)
-
 
     # create selenium driver to bypass login credentials
     service = Service(ChromeDriverManager().install())
@@ -52,10 +50,10 @@ def main():
         driver.find_element(By.CSS_SELECTOR, ".btn-primary").click()
         # send calnet username
         WebDriverWait(driver, 10).until(EC.visibility_of_element_located((By.ID, 'username')))
-        driver.find_element(By.ID, 'username').send_keys(USERNAME)
+        driver.find_element(By.ID, 'username').send_keys(ICLICKER_USERNAME)
         # send calnet password
         WebDriverWait(driver, 10).until(EC.visibility_of_element_located((By.ID, 'password')))
-        driver.find_element(By.ID, 'password').send_keys(PASSSWORD)
+        driver.find_element(By.ID, 'password').send_keys(ICLICKER_PASSWORD)
         # click sign in button
         WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.NAME, 'submit')))
         driver.find_element(By.NAME, 'submit').click()
@@ -68,13 +66,13 @@ def main():
         #click bypass bottom 
         WebDriverWait(driver, 20).until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Export')]"))).click()
 
-        #Select all
+        # select all files to export
         time.sleep(2)
         checkbox = WebDriverWait(driver, 20).until(EC.element_to_be_clickable((By.ID, "check-box-header")))
         checkbox.click()
         print("Select all button clicked successfully!")
 
-        #Export all
+        # click export button
         time.sleep(2)
         modal_export_button = WebDriverWait(driver, 20).until(
             EC.element_to_be_clickable(
@@ -89,7 +87,7 @@ def main():
         print(f"An error occurred: {e}")
     
     # path to csv folder
-    csv_folder = r"C:\Users\cathe\Documents\Github\GradeSync\iClickerTest\iClicker_csv"
+    csv_folder = r"/Users/sahanabharadwaj/Downloads/iClicker/iclicker_csv_exports"
     csv_files = glob.glob(os.path.join(csv_folder, "*.csv"))
     dataframes = {}
     for file in csv_files:
@@ -98,7 +96,6 @@ def main():
         print(f"Data from {os.path.basename(file)}:")
         print(df)
         print("\n")
-
 
 
 if __name__ == '__main__':

@@ -18,24 +18,25 @@ load_dotenv()
 ICLICKER_USERNAME = os.getenv("ICLICKER_USERNAME")
 ICLICKER_PASSWORD = os.getenv("ICLICKER_PASSWORD")
 
-def main():
-    # specify download directory (ensure this folder exists)
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    download_dir = os.path.join(base_dir, "iclicker_csv_exports")
-    
+base_dir = os.path.dirname(os.path.abspath(__file__)) # path to folder
+download_dir = os.path.join(base_dir, "iclicker_csv_exports") # ensure folder exists
+
+
+def selenium_bot():
     # create chromeoptions and set download preferences
-    chrome_options = Options()
     prefs = {
         "download.default_directory": download_dir,
         "download.prompt_for_download": False,
         "download.directory_upgrade": True,
         "plugins.always_open_pdf_externally": True
     }
-    chrome_options.add_experimental_option("prefs", prefs)
-
+    
     # create selenium driver to bypass login credentials
+    chrome_options = Options()
+    chrome_options.add_experimental_option("prefs", prefs)
     service = Service(ChromeDriverManager().install())
     driver = webdriver.Chrome(service=service, options=chrome_options)
+    
     # navigate to iclicker login page
     driver.get('https://instructor.iclicker.com/#/onboard/login')
     try:
@@ -71,8 +72,7 @@ def main():
         time.sleep(2)
         checkbox = WebDriverWait(driver, 20).until(EC.element_to_be_clickable((By.ID, "check-box-header")))
         checkbox.click()
-        print("Select all button clicked successfully!")
-
+        
         # click export button
         time.sleep(2)
         modal_export_button = WebDriverWait(driver, 20).until(
@@ -86,19 +86,28 @@ def main():
 
     except Exception as e:
         print(f"An error occurred: {e}")
-    
+        
+        
+def export_to_csv():
     # path to csv folder
     csv_folder = os.path.join(base_dir, "iclicker_csv_exports")
     csv_files = glob.glob(os.path.join(csv_folder, "*.csv"))
-    dataframes = {}
-    for file in csv_files:
-        df = pd.read_csv(file)
-        df["Total Tracked"] = df["Total Absent"] + df["Total Present"] + df["Total Excused"]
-        dataframes[os.path.basename(file)] = df
-        print(f"Data from {os.path.basename(file)}:")
-        print(df)
-        print("\n")
+    
+    # print data frame
+    if csv_files:
+    # Sort files by modified time (newest first)
+        most_recent_file = max(csv_files, key=os.path.getmtime)
+    
+    # return most recently exported file
+    df = pd.read_csv(most_recent_file)
+    df["Total Tracked"] = df["Total Absent"] + df["Total Present"] + df["Total Excused"]
+    print(df)
 
+
+def main():
+    selenium_bot()
+    
+    export_to_csv()
 
 if __name__ == '__main__':
     main()

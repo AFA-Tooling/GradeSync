@@ -20,7 +20,8 @@ ICLICKER_PASSWORD = os.getenv("ICLICKER_PASSWORD")
 
 def main():
     # specify download directory (ensure this folder exists)
-    download_dir = r"/Users/sahanabharadwaj/Downloads/iClicker/iclicker_csv_exports"
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    download_dir = os.path.join(base_dir, "iclicker_csv_exports")
     
     # create chromeoptions and set download preferences
     chrome_options = Options()
@@ -87,11 +88,12 @@ def main():
         print(f"An error occurred: {e}")
     
     # path to csv folder
-    csv_folder = r"/Users/sahanabharadwaj/Downloads/iClicker/iclicker_csv_exports"
+    csv_folder = os.path.join(base_dir, "iclicker_csv_exports")
     csv_files = glob.glob(os.path.join(csv_folder, "*.csv"))
     dataframes = {}
     for file in csv_files:
         df = pd.read_csv(file)
+        df["Total Tracked"] = df["Total Absent"] + df["Total Present"] + df["Total Excused"]
         dataframes[os.path.basename(file)] = df
         print(f"Data from {os.path.basename(file)}:")
         print(df)

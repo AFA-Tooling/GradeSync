@@ -46,7 +46,7 @@ logger.info("Starting the gradescope_to_spreadsheet script.")
 # Load JSON variables
 # Note: this class JSON name can be made customizable, inputted through a front end user interface for example
 # But the default is cs10_fall2024.json
-class_json_name = 'cs10_fall2024.json'
+class_json_name = 'cs10_sp2025.json'
 config_path = os.path.join(os.path.dirname(__file__), 'config/', class_json_name)
 with open(config_path, "r") as config_file:
     config = json.load(config_file)
@@ -91,8 +91,8 @@ DISCUSSION_COMPLETION_INDICATOR_FORMULA uses similar logic, but includes a condi
 A submitted discussion is awarded full credit; discussions are not manually graded.
 """
 # Updated these two lines, given the updated CSV return format of GradeScope
-GRADE_RETRIEVAL_SPREADSHEET_FORMULA = '=XLOOKUP(C:C, INDIRECT( INDIRECT(ADDRESS(1, COLUMN(), 4)) & "!C:C"), INDIRECT(INDIRECT(ADDRESS(1, COLUMN(), 4)) & "!F:F"))'
-DISCUSSION_COMPLETION_INDICATOR_FORMULA = '=ARRAYFORMULA(IF(INDIRECT( INDIRECT(ADDRESS(1, COLUMN(), 4)) & "!H:H")="Missing", 0,  IF(A:A<>"", 1, "")))'
+GRADE_RETRIEVAL_SPREADSHEET_FORMULA = '=XLOOKUP(C:C, INDIRECT( INDIRECT(ADDRESS(1, COLUMN(), 4)) & "!B:B"), INDIRECT(INDIRECT(ADDRESS(1, COLUMN(), 4)) & "!E:E"))'
+DISCUSSION_COMPLETION_INDICATOR_FORMULA = '=ARRAYFORMULA(IF(INDIRECT( INDIRECT(ADDRESS(1, COLUMN(), 4)) & "!G:G")="Missing", 0,  IF(A:A<>"", 1, "")))'
 
 # This is not a constant; it is a variable that needs global scope. It should not be modified by the user
 subsheet_titles_to_ids = None

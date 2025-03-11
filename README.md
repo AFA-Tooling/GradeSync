@@ -2,7 +2,8 @@
 
 
 To Setup the Virtual Environment:
-1. Activate the virtual environment: 
+1. Create and activate the virtual environment:
+```python -m venv venv```
 ```source venv/bin/activate```
 
 2. Then, select the correct interpreter to run with the play button in VS Code.

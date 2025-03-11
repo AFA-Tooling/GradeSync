@@ -1,7 +1,7 @@
 import os
 import glob
 import json
-from dotenv import load_dotenv 
+from dotenv import load_dotenv
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
@@ -109,8 +109,9 @@ def export_to_csv():
     csv_files = glob.glob(os.path.join(csv_folder, "*.csv"))
 
     # print data frame based on timestamp
-    if csv_files:
-        most_recent_file = max(csv_files, key=os.path.getmtime)
+    if not csv_files:
+        raise FileNotFoundError("No CSV files found in the directory.")
+    most_recent_file = max(csv_files, key=os.path.getmtime)
     
     # return most recently exported file
     df = pd.read_csv(most_recent_file)
@@ -138,6 +139,11 @@ def export_to_google_sheets():
         # update the worksheet with new data
         worksheet.update(sheet_data)
         print("Finished exporting to Google Sheets.")
+        
+        # remove local csv files after export
+        for file_path in csv_files:
+            os.remove(file_path)
+        print("Local CSV files deleted after export.")
   
     except Exception as e:
         print(f"An error occurred: {e}")

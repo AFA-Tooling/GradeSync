@@ -1,7 +1,7 @@
 import os
 import glob
 import json
-from dotenv import load_dotenv
+from dotenv import load_dotenv 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
@@ -11,9 +11,8 @@ from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
 import time
 import gspread
-import requests
-from bs4 import BeautifulSoup
 import pandas as pd
+import re
 from google.oauth2.service_account import Credentials
 
 load_dotenv()
@@ -21,13 +20,14 @@ load_dotenv()
 ICLICKER_USERNAME = os.getenv("ICLICKER_USERNAME")
 ICLICKER_PASSWORD = os.getenv("ICLICKER_PASSWORD")
 
-# load json variables
-class_json_name = 'cs10_dummy'
+# load config variables
+class_json_name = 'CS10 Dummy'
 config_path = os.path.join(os.path.dirname(__file__), 'config/', class_json_name)
 with open(config_path, "r") as config_file:
     config = json.load(config_file)
 SCOPES = config["SCOPES"]
 SPREADSHEET_ID = config["SPREADSHEET_ID"]
+COURSES = config["COURSES"]
 
 credentials_json = os.getenv("SERVICE_ACCOUNT_CREDENTIALS")
 credentials_dict = json.loads(credentials_json)
@@ -39,7 +39,12 @@ download_dir = os.path.join(base_dir, "iclicker_csv_exports") # ensure folder ex
 
 
 def selenium_bot():
-    # create chromeoptions and set download preferences
+    """
+    Bot automates logging into iClicker, looping through all courses, and downloading attendance data
+    while explicitly tracking which CSV file belongs to which course (lecture, lab, or discussion).
+    """
+    
+    # chrome options
     prefs = {
         "download.default_directory": download_dir,
         "download.prompt_for_download": False,
@@ -47,111 +52,134 @@ def selenium_bot():
         "plugins.always_open_pdf_externally": True
     }
     
-    # create selenium driver to bypass login credentials
+    # initialize bot
     chrome_options = Options()
     chrome_options.add_experimental_option("prefs", prefs)
     service = Service(ChromeDriverManager().install())
     driver = webdriver.Chrome(service=service, options=chrome_options)
-    
-    # navigate to iclicker login page
+
+    # dictionary for exported files per course
+    exported_files = {}
+
+    # navigate to iClicker login page
     driver.get('https://instructor.iclicker.com/#/onboard/login')
+    
+    # bot signs in with credentials
     try:
-        # click campus portal login
-        WebDriverWait(driver, 20).until(EC.element_to_be_clickable((By.LINK_TEXT, "Sign in through your campus portal")))
-        driver.find_element(By.LINK_TEXT, "Sign in through your campus portal").click()
-        # choose berkeley from university list dropdown
+        WebDriverWait(driver, 20).until(EC.element_to_be_clickable((By.LINK_TEXT, "Sign in through your campus portal"))).click()
         WebDriverWait(driver, 20).until(EC.visibility_of_element_located((By.ID, "institute")))
         select_institution = Select(driver.find_element(By.ID, "institute"))
         select_institution.select_by_visible_text("University of California Berkeley")
-        # click let's go button
-        WebDriverWait(driver, 20).until(EC.element_to_be_clickable((By.CSS_SELECTOR, ".btn-primary")))
-        driver.find_element(By.CSS_SELECTOR, ".btn-primary").click()
-        # send calnet username
-        WebDriverWait(driver, 10).until(EC.visibility_of_element_located((By.ID, 'username')))
-        driver.find_element(By.ID, 'username').send_keys(ICLICKER_USERNAME)
-        # send calnet password
-        WebDriverWait(driver, 10).until(EC.visibility_of_element_located((By.ID, 'password')))
-        driver.find_element(By.ID, 'password').send_keys(ICLICKER_PASSWORD)
-        # click sign in button
-        WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.NAME, 'submit')))
-        driver.find_element(By.NAME, 'submit').click()
-        # wait for manual duo authentication
-        print("Please complete the Duo Push authentication now.")
-        # click cs10 dummy
-        WebDriverWait(driver, 20).until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button[title='CS10 Dummy']"))).click()
-        # click attendance
-        WebDriverWait(driver, 20).until(EC.element_to_be_clickable((By.XPATH, "//span[@class='course-link-title' and contains(text(), 'Attendance')]"))).click()
-        #click bypass bottom 
-        WebDriverWait(driver, 20).until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Export')]"))).click()
+        WebDriverWait(driver, 20).until(EC.element_to_be_clickable((By.CSS_SELECTOR, ".btn-primary"))).click()
 
-        # select all files to export
-        time.sleep(2)
-        checkbox = WebDriverWait(driver, 20).until(EC.element_to_be_clickable((By.ID, "check-box-header")))
-        checkbox.click()
-        
-        # click export button
-        time.sleep(2)
-        modal_export_button = WebDriverWait(driver, 20).until(
-            EC.element_to_be_clickable(
-                (By.XPATH, "//button[@type='submit' and contains(text(), 'Export')]")
-            )
-        )
-        modal_export_button.click()
-        time.sleep(10)
+        WebDriverWait(driver, 10).until(EC.visibility_of_element_located((By.ID, 'username'))).send_keys(ICLICKER_USERNAME)
+        WebDriverWait(driver, 10).until(EC.visibility_of_element_located((By.ID, 'password'))).send_keys(ICLICKER_PASSWORD)
+        WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.NAME, 'submit'))).click()
+
+        print("Please complete the Duo Push authentication now.")
+        time.sleep(15)  # allow time for duo authentication
+
+        # iterate over courses so bot can access lecture, lab, and discussion data without another duo push
+        for course_name in COURSES:
+            try:
+                driver.get("https://instructor.iclicker.com/#/courses")
+                time.sleep(5)
+
+                # click course
+                WebDriverWait(driver, 20).until(
+                    EC.element_to_be_clickable((By.CSS_SELECTOR, f"button[title='{course_name}']"))
+                ).click()
+                
+                # click attendance
+                WebDriverWait(driver, 20).until(
+                    EC.element_to_be_clickable((By.XPATH, "//span[contains(text(), 'Attendance')]"))
+                ).click()
+
+                # click export
+                WebDriverWait(driver, 20).until(
+                    EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Export')]"))
+                ).click()
+
+                # select all files
+                time.sleep(2)
+                WebDriverWait(driver, 20).until(EC.element_to_be_clickable((By.ID, "check-box-header"))).click()
+
+                # click export button
+                time.sleep(2)
+                WebDriverWait(driver, 20).until(
+                    EC.element_to_be_clickable((By.XPATH, "//button[@type='submit' and contains(text(), 'Export')]"))
+                ).click()
+
+                time.sleep(10)
+
+                # track which file belongs to which course
+                csv_files = glob.glob(os.path.join(download_dir, "*.csv"))
+                exported_files[course_name] = max(csv_files, key=os.path.getmtime)
+
+            except Exception as e:
+                print(f"Error processing {course_name}: {e}")
+                continue  
 
     except Exception as e:
-        print(f"An error occurred: {e}")
-        
-        
-def export_to_csv():
-    # path to csv folder
-    csv_folder = os.path.join(base_dir, "iclicker_csv_exports")
-    csv_files = glob.glob(os.path.join(csv_folder, "*.csv"))
+        print(f"Login error: {e}")
 
-    # print data frame based on timestamp
-    if not csv_files:
-        raise FileNotFoundError("No CSV files found in the directory.")
-    most_recent_file = max(csv_files, key=os.path.getmtime)
+    finally:
+        driver.quit()  
     
-    # return most recently exported file
-    df = pd.read_csv(most_recent_file)
-    df["Total Tracked"] = df["Total Absent"] + df["Total Present"] + df["Total Excused"]
-    df = df.dropna(subset=['Student Name'])
-    return df, csv_files
+    return exported_files
 
-def export_to_google_sheets():
-    df, csv_files = export_to_csv()
+
+def export_to_google_sheets(course_name, file_path):
+    """
+    Exports a specific CSV file using file_path to the correct Google Sheets spreadsheet.
+    """
+    
+    df = pd.read_csv(file_path)
+    df["Total Tracked"] = df["Total Absent"] + df["Total Present"] + df["Total Excused"]
+
+    # convert attendance values to binary (0 = absent, 1 = present/excused)
+    status_map = {"ABSENT": 0, "PRESENT": 1, "EXCUSED": 1}
+    df.replace(status_map, inplace=True)
+    df = df.dropna(subset=['Student Name'])  # remove empty rows
+
+    # convert dataframe to a list format for google sheets
     sheet_data = [df.columns.tolist()] + df.astype(str).values.tolist()
 
     try:
-        # open google sheet
         sheet = client.open_by_key(SPREADSHEET_ID)
-        
-        # create a new sheet with timestamp
-        most_recent_file = max(csv_files, key=os.path.getmtime)
-        sheet_name = os.path.basename(most_recent_file).replace(".csv", "")
+
+        # use course name as sheet name
+        sheet_name = course_name.replace(" ", "_")
+
         try:
             worksheet = sheet.worksheet(sheet_name)
             worksheet.clear()
         except gspread.exceptions.WorksheetNotFound:
             worksheet = sheet.add_worksheet(title=sheet_name, rows="100", cols="20")
-        
-        # update the worksheet with new data
+
         worksheet.update(sheet_data)
-        print("Finished exporting to Google Sheets.")
+        print("Data has been exported to Google Sheet.")
+
+
+        # delete the local csv after uploading
+        os.remove(file_path)
+        print("Local iClicker files have been deleted. Bot done!")
+
         
-        # remove local csv files after export
-        for file_path in csv_files:
-            os.remove(file_path)
-        print("Local CSV files deleted after export.")
-  
     except Exception as e:
-        print(f"An error occurred: {e}")
+        print(f"Error exporting {course_name} to Google Sheets: {e}")
 
 
 def main():
-    selenium_bot()
-    export_to_google_sheets()
+    """
+    Main function to handle Selenium automation and Google Sheets export.
+    """
+    exported_files = selenium_bot()
+
+    for course, file_path in exported_files.items():
+        export_to_google_sheets(course, file_path)
+
 
 if __name__ == '__main__':
     main()
+    

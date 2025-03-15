@@ -1,0 +1,11 @@
+{
+    "SCOPES": [
+        "https://www.googleapis.com/auth/spreadsheets"
+    ],
+    "SPREADSHEET_ID": "1Hq7dOY4PlqzEFHMmvi7c04wlGcaGXYYseg5qmk211RI",
+    "COURSES": [
+        "CS10 Lecture",
+        "CS 10 Discussion",
+        "CS 10 Lab"
+    ]
+}

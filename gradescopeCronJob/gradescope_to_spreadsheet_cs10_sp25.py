@@ -46,7 +46,7 @@ logger.info("Starting the gradescope_to_spreadsheet script.")
 # Load JSON variables
 # Note: this class JSON name can be made customizable, inputted through a front end user interface for example
 # But the default is cs10_fall2024.json
-class_json_name = 'cs10_fall2024.json'
+class_json_name = 'cs10_sp2025.json'
 config_path = os.path.join(os.path.dirname(__file__), 'config/', class_json_name)
 with open(config_path, "r") as config_file:
     config = json.load(config_file)

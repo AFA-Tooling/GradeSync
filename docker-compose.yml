@@ -1,0 +1,20 @@
+services:
+  web:
+    build:
+      context: .  # Build from the project root
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app  # Mount the project root into /app
+    environment:
+      - PYTHONPATH=/app
+    command: uvicorn api.app:app --host 0.0.0.0 --port 8000
+
+  tests:
+    build:
+      context: .  # Build from the project root
+    volumes:
+      - .:/app  # Mount the project root into /app
+    environment:
+      - PYTHONPATH=/app
+    command: pytest --cov=api --cov-report=term-missing

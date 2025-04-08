@@ -21,7 +21,7 @@ ICLICKER_USERNAME = os.getenv("ICLICKER_USERNAME")
 ICLICKER_PASSWORD = os.getenv("ICLICKER_PASSWORD")
 
 # load config variables
-class_json_name = 'CS10 Dummy'
+class_json_name = 'cs10_dummy.json'
 config_path = os.path.join(os.path.dirname(__file__), 'config/', class_json_name)
 with open(config_path, "r") as config_file:
     config = json.load(config_file)

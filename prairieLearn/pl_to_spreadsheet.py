@@ -294,9 +294,7 @@ def make_batch_request(sheet_api_instance):
     logger.info(f"Issuing batch request")
     make_request(batch_request)
     logger.info(f"Completing batch request")
-
-
-# NEW CODE BELOW THIS LINE ------------
+    
 
 # ------------------------------------------------------------------------------------
 # SECTION 3: PrairieLearn API Calls

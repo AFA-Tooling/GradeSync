@@ -12,7 +12,6 @@ from webdriver_manager.chrome import ChromeDriverManager
 import time
 import gspread
 import pandas as pd
-import re
 from google.oauth2.service_account import Credentials
 
 load_dotenv()
@@ -21,7 +20,7 @@ ICLICKER_USERNAME = os.getenv("ICLICKER_USERNAME")
 ICLICKER_PASSWORD = os.getenv("ICLICKER_PASSWORD")
 
 # load config variables
-class_json_name = 'cs10_dummy.json'
+class_json_name = 'cs10.json'
 config_path = os.path.join(os.path.dirname(__file__), 'config/', class_json_name)
 with open(config_path, "r") as config_file:
     config = json.load(config_file)
@@ -172,12 +171,10 @@ def export_to_google_sheets(course_name, file_path):
         worksheet.update(sheet_data)
         print("Data has been exported to Google Sheet.")
 
-
         # delete the local csv after uploading
         os.remove(file_path)
         print("Local iClicker files have been deleted. Bot done!")
 
-        
     except Exception as e:
         print(f"Error exporting {course_name} to Google Sheets: {e}")
 
@@ -186,6 +183,7 @@ def main():
     """
     Main function to handle Selenium automation and Google Sheets export.
     """
+    
     exported_files = selenium_bot()
 
     for course, file_path in exported_files.items():

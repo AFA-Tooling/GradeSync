@@ -1,0 +1,11 @@
+Student Name,Student ID,Email,Total Absent,Total Excused,Total Present,Class 1 - Attendance 02/13/25,Class 2 - Attendance 02/13/25
+"Bhargava, Manan",3036535321,manan.bhargava@berkeley.edu,1.0,1.0,0,ABSENT,EXCUSED
+"Chung, Hannah",3039593663,hchung72@berkeley.edu,1.0,0,1.0,ABSENT,PRESENT
+"Narang, Vibhor",3040119033,vibhornarang@berkeley.edu,2.0,0,0,ABSENT,ABSENT
+"Phelps, Victoria",26808084,jedi_force@berkeley.edu,1.0,0,1.0,ABSENT,PRESENT
+"Wijesooriya, Nawoda",3037027827,nawodakw@berkeley.edu,2.0,0,0,ABSENT,ABSENT
+"Zhuang, Catherine",3038781007,lynn_kkcz@berkeley.edu,2.0,0,0,ABSENT,ABSENT
+,,,,,,,
+PRESENT,,,,,,0,2
+ABSENT,,,,,,6,3
+EXCUSED,,,,,,0,1

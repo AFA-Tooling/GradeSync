@@ -66,6 +66,18 @@ def selenium_bot():
     
     # bot signs in with credentials
     try:
+        # check if there is a cookie tab that needs to be closed. 
+        try:
+            close_button = WebDriverWait(driver, 5).until(
+                EC.element_to_be_clickable((By.CSS_SELECTOR, "button.onetrust-close-btn-handler"))
+            )
+            close_button.click()
+            print("Cookie banner closed.")
+        except Exception as e:
+            # If it times out or the button isn't found/clickable, this will be triggered
+            print("No cookie banner found (or couldn't click). Continuing...")
+
+        time.sleep(3)
         WebDriverWait(driver, 20).until(EC.element_to_be_clickable((By.LINK_TEXT, "Sign in through your campus portal"))).click()
         WebDriverWait(driver, 20).until(EC.visibility_of_element_located((By.ID, "institute")))
         select_institution = Select(driver.find_element(By.ID, "institute"))

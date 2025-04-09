@@ -2,10 +2,10 @@
     "SCOPES": [
         "https://www.googleapis.com/auth/spreadsheets"
     ],
-    "SPREADSHEET_ID": "1Hq7dOY4PlqzEFHMmvi7c04wlGcaGXYYseg5qmk211RI",
+    "SPREADSHEET_ID": "1NIQlPZwnfuRW8RqlvY9PIWVEeUiMRa5eJRkUsHzDs1Y",
     "COURSES": [
-        "CS10 Lecture",
-        "CS 10 Discussion",
-        "CS 10 Lab"
+        "[CS10 | Sp25] Discussion",
+        "[CS10 | Sp25] Lab",
+        "[CS10 | Sp25] Lecture"
     ]
 }

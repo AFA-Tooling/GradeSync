@@ -1,6 +1,7 @@
 import os
 import glob
 import json
+import logging
 from dotenv import load_dotenv 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -22,6 +23,7 @@ ICLICKER_PASSWORD = os.getenv("ICLICKER_PASSWORD")
 # load config variables
 class_json_name = 'cs10.json'
 config_path = os.path.join(os.path.dirname(__file__), 'config/', class_json_name)
+logging.info(f"Loading config from {config_path}")
 with open(config_path, "r") as config_file:
     config = json.load(config_file)
 SCOPES = config["SCOPES"]
@@ -42,6 +44,7 @@ def selenium_bot():
     Bot automates logging into iClicker, looping through all courses, and downloading attendance data
     while explicitly tracking which CSV file belongs to which course (lecture, lab, or discussion).
     """
+    logging.info("Starting Selenium bot...")
     
     # chrome options
     prefs = {
@@ -62,7 +65,8 @@ def selenium_bot():
 
     # navigate to iClicker login page
     driver.get('https://instructor.iclicker.com/#/onboard/login')
-    
+    logging.info("Navigated to iClicker login page")
+
     # bot signs in with credentials
     try:
         # check if there is a cookie tab that needs to be closed. 
@@ -71,13 +75,14 @@ def selenium_bot():
                 EC.element_to_be_clickable((By.CSS_SELECTOR, "button.onetrust-close-btn-handler"))
             )
             close_button.click()
-            print("Cookie banner closed.")
+            logging.info("Closed cookie banner")
         except Exception as e:
             # If it times out or the button isn't found/clickable, this will be triggered
-            print("No cookie banner found (or couldn't click). Continuing...")
+            logging.info("No cookie banner found or not clickable")
 
         time.sleep(3)
         WebDriverWait(driver, 20).until(EC.element_to_be_clickable((By.LINK_TEXT, "Sign in through your campus portal"))).click()
+        logging.info("Clicked campus portal login")
         WebDriverWait(driver, 20).until(EC.visibility_of_element_located((By.ID, "institute")))
         select_institution = Select(driver.find_element(By.ID, "institute"))
         select_institution.select_by_visible_text("University of California Berkeley")
@@ -86,13 +91,15 @@ def selenium_bot():
         WebDriverWait(driver, 10).until(EC.visibility_of_element_located((By.ID, 'username'))).send_keys(ICLICKER_USERNAME)
         WebDriverWait(driver, 10).until(EC.visibility_of_element_located((By.ID, 'password'))).send_keys(ICLICKER_PASSWORD)
         WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.NAME, 'submit'))).click()
+        logging.info("Submitted login credentials")
 
-        print("Please complete the Duo Push authentication now.")
+        logging.info("Waiting for Duo authentication...")
         time.sleep(15)  # allow time for duo authentication
 
         # iterate over courses so bot can access lecture, lab, and discussion data without another duo push
         for course_name in COURSES:
             try:
+                logging.info(f"Processing course: {course_name}")
                 driver.get("https://instructor.iclicker.com/#/courses")
                 time.sleep(5)
 
@@ -128,14 +135,15 @@ def selenium_bot():
                 exported_files[course_name] = max(csv_files, key=os.path.getmtime)
 
             except Exception as e:
-                print(f"Error processing {course_name}: {e}")
+                logging.error(f"Error processing {course_name}: {e}")
                 continue  
 
     except Exception as e:
-        print(f"Login error: {e}")
+        logging.error(f"Login error: {e}")
 
     finally:
-        driver.quit()  
+        driver.quit()
+        logging.info("Closed browser and quit driver")
     
     return exported_files
 
@@ -145,6 +153,7 @@ def export_to_google_sheets(course_name, file_path):
     Exports a specific CSV file using file_path to the correct Google Sheets spreadsheet.
     """
     
+    logging.info(f"Exporting {course_name} CSV to Google Sheets...")
     df = pd.read_csv(file_path)
     df["Total Tracked"] = df["Total Absent"] + df["Total Present"] + df["Total Excused"]
 
@@ -169,14 +178,14 @@ def export_to_google_sheets(course_name, file_path):
             worksheet = sheet.add_worksheet(title=sheet_name, rows="100", cols="20")
 
         worksheet.update(sheet_data)
-        print("Data has been exported to Google Sheet.")
+        logging.info(f"Successfully uploaded {course_name} data to Google Sheets")
 
         # delete the local csv after uploading
         os.remove(file_path)
-        print("Local iClicker files have been deleted. Bot done!")
+        logging.info(f"Deleted local file: {file_path}")
 
     except Exception as e:
-        print(f"Error exporting {course_name} to Google Sheets: {e}")
+        logging.error(f"Error exporting {course_name} to Google Sheets: {e}")
 
 
 def main():
@@ -184,6 +193,7 @@ def main():
     Main function to handle Selenium automation and Google Sheets export.
     """
     
+    logging.info("Starting main function")
     exported_files = selenium_bot()
 
     for course, file_path in exported_files.items():

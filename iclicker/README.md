@@ -2,7 +2,7 @@
 
 1. Navigate to https://instructor.iclicker.com/#/onboard/login
 2. Login with your instructor credentials
-3. Retrieve the titles of the iClicker courses 
+3. Retrieve the titles of the iClicker courses
 4. Paste the titles of the courses into the config file as a list
 5. Ensure the config is updated in line 24 for the variable class_json_name to retrieve the correct value.
 

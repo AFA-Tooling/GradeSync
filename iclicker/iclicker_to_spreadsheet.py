@@ -94,7 +94,13 @@ def selenium_bot():
         logging.info("Submitted login credentials")
 
         logging.info("Waiting for Duo authentication...")
-        time.sleep(15)  # allow time for duo authentication
+
+        # allow time for duo authentication
+        time.sleep(15)  
+
+        #Click this is my device button 
+        WebDriverWait(driver, 20).until(EC.element_to_be_clickable((By.ID, "trust-browser-button"))).click()
+        time.sleep(5)
 
         # iterate over courses so bot can access lecture, lab, and discussion data without another duo push
         for course_name in COURSES:

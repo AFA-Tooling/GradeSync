@@ -44,7 +44,7 @@ logger.info("Starting the prairielearn_to_sheets script.")
 # Load JSON variables
 # Note: this class JSON name can be made customizable, inputted through a front end user interface for example
 # But the default is cs10_fall2024.json
-class_json_name = 'cs10_sp25_test.json'
+class_json_name = 'cs10_sp25.json'
 config_path = os.path.join(os.path.dirname(__file__), 'config/', class_json_name)
 with open(config_path, "r") as config_file:
     config = json.load(config_file)
@@ -307,7 +307,7 @@ def create_pivot_table(instance_question_df):
     score_pivot = instance_question_df.pivot_table(
         index='UIN',
         columns=['Assessment', 'Zone number', 'Zone title'],
-        values='Highest submission score',
+        values='Question points',
         aggfunc='first'
     )
 
@@ -326,15 +326,15 @@ def create_pivot_table(instance_question_df):
     score_pivot.columns = score_pivot.columns.droplevel('Zone number')
     max_points_row.columns = max_points_row.columns.droplevel('Zone number')
 
-    #
     max_points_row.index = ['Max Points']
     final_df = pd.concat([max_points_row, score_pivot])
 
+    # Get the an ascending column number for easier indexing of columns 
     column_numbers = pd.DataFrame(
-    [range(final_df.shape[1])],  
-    columns=final_df.columns,
-    index=['Column #']
-)
+        [range(final_df.shape[1])],  
+        columns=final_df.columns,
+        index=['Column #']
+    )
     final_df_with_column_nums = pd.concat([column_numbers, final_df])
 
     return final_df_with_column_nums

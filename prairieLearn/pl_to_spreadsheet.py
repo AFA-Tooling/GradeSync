@@ -329,7 +329,7 @@ def create_pivot_table(instance_question_df):
     max_points_row.index = ['Max Points']
     final_df = pd.concat([max_points_row, score_pivot])
 
-    # Get the an ascending column number for easier indexing of columns 
+    # Get an ascending column number for easier indexing of columns 
     column_numbers = pd.DataFrame(
         [range(final_df.shape[1])],  
         columns=final_df.columns,

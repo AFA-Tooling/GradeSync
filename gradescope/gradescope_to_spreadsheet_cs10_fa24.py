@@ -2,6 +2,7 @@
 # Author: Naveen Nathan
 
 import json
+
 from fullGSapi.api import client as GradescopeClient
 import os.path
 import re
@@ -19,11 +20,12 @@ import csv
 import pandas as pd
 import backoff_utils
 import requests
-from datetime import datetime
 
 load_dotenv()
 GRADESCOPE_EMAIL = os.getenv("GRADESCOPE_EMAIL")
 GRADESCOPE_PASSWORD = os.getenv("GRADESCOPE_PASSWORD")
+PL_API_TOKEN = os.getenv("PL_API_TOKEN")
+PL_SERVER = "https://us.prairielearn.com/pl/api/v1"
 
 import logging
 import sys
@@ -33,6 +35,7 @@ logging.basicConfig(
     level=logging.INFO,  # or DEBUG for more detail
     format="%(asctime)s - %(levelname)s - %(message)s",
     handlers=[
+        # logging.FileHandler("/var/log/cron.log"),  # Logs to file, comment out line for local testing ONLY
         logging.StreamHandler(sys.stdout)  # Logs to console (stdout)
     ]
 )
@@ -43,18 +46,32 @@ logger.info("Starting the gradescope_to_spreadsheet script.")
 # Load JSON variables
 # Note: this class JSON name can be made customizable, inputted through a front end user interface for example
 # But the default is cs10_fall2024.json
-class_json_name = 'cs10_sp25_test.json'
+class_json_name = 'cs10_fa24.json'
 config_path = os.path.join(os.path.dirname(__file__), 'config/', class_json_name)
 with open(config_path, "r") as config_file:
     config = json.load(config_file)
 
 # IDs to link files
 GRADESCOPE_COURSE_ID = config["GRADESCOPE_COURSE_ID"]
+PL_COURSE_ID = str(config["PL_COURSE_ID"])
 SCOPES = config["SCOPES"]
 SPREADSHEET_ID = config["SPREADSHEET_ID"]
 
 # Course metadata
 NUMBER_OF_STUDENTS = config["NUMBER_OF_STUDENTS"]
+
+# Pyturis is a specific assignment from PrarieLearn from CS 10.
+INCLUDE_PYTURIS = config["INCLUDE_PYTURIS"]
+PYTURIS_ASSIGNMENT_ID = str(config["PYTURIS_ASSIGNMENT_ID"])
+PL_ASSIGNMENT_COLUMN_ORDER = [
+    "user_name", "user_id", "points", "max_points", "score_perc",
+    "highest_score", "assessment_number", "modified_at", "assessment_name",
+    "start_date", "assessment_title", "assessment_label", "user_role",
+    "duration_seconds", "group_name", "time_remaining", "assessment_id",
+    "group_id", "user_uid", "assessment_instance_number",
+    "assessment_set_abbreviation", "group_uids", "assessment_instance_id",
+    "open", "max_bonus_points"
+]
 
 # These constants are deprecated. 
 # The following explanation is for what their purpose was: 
@@ -78,6 +95,10 @@ A submitted discussion is awarded full credit; discussions are not manually grad
 # Formula for Spring 2025 GradeScope Instance
 GRADE_RETRIEVAL_SPREADSHEET_FORMULA = '=XLOOKUP(C:C, INDIRECT( INDIRECT(ADDRESS(1, COLUMN(), 4)) & "!C:C"), INDIRECT(INDIRECT(ADDRESS(1, COLUMN(), 4)) & "!F:F"))'
 DISCUSSION_COMPLETION_INDICATOR_FORMULA = '=IF(XLOOKUP($C:$C, INDIRECT(INDIRECT(ADDRESS(1,COLUMN(),4)) & "!C:C"), INDIRECT(INDIRECT(ADDRESS(1,COLUMN(),4)) & "!H:H")) = "Missing", 0, 1)'
+
+# Formula for Fall 2024 GradeScope Instance
+# GRADE_RETRIEVAL_SPREADSHEET_FORMULA = '=XLOOKUP(B:B, INDIRECT( INDIRECT(ADDRESS(1, COLUMN(), 4)) & "!B:B"), INDIRECT(INDIRECT(ADDRESS(1, COLUMN(), 4)) & "!E:E"))'
+# DISCUSSION_COMPLETION_INDICATOR_FORMULA = '=ARRAYFORMULA(IF(INDIRECT( INDIRECT(ADDRESS(1, COLUMN(), 4)) & "!H:H")="Missing", 0,  IF(A:A<>"", 1, "")))'
 
 # This is not a constant; it is a variable that needs global scope. It should not be modified by the user
 subsheet_titles_to_ids = None
@@ -104,6 +125,7 @@ credentials_json = os.getenv("SERVICE_ACCOUNT_CREDENTIALS")
 credentials_dict = json.loads(credentials_json)
 credentials = Credentials.from_service_account_info(credentials_dict, scopes=SCOPES)
 client = gspread.authorize(credentials)
+
 
 def create_sheet_and_request_to_populate_it(sheet_api_instance, assignment_scores, assignment_name = ASSIGNMENT_NAME):
     """
@@ -238,10 +260,7 @@ def make_request(request):
     Returns:
         None
     """
-    logger.info(f"Making request: {request}")
-    response = request.execute()
-    logger.info(f"Request completed successfully")
-    return response
+    return request.execute()
 
 
 def assemble_rest_request_for_assignment(assignment_scores, sheet_id, rowIndex = 0, columnIndex=0):
@@ -385,12 +404,10 @@ def make_batch_request(sheet_api_instance):
     rest_batch_request = {
         "requests": request_list
     }
-    logger.info(f"Preparing batch request with {len(request_list)} requests")
     batch_request = sheet_api_instance.batchUpdate(spreadsheetId=SPREADSHEET_ID, body=rest_batch_request)
-    logger.info("Issuing batch request")
+    logger.info(f"Issuing batch request")
     make_request(batch_request)
-    logger.info("Completed batch request")
-    request_list = []  # Clear the request list after successful batch update
+    logger.info(f"Completing batch request")
 
 
 def push_all_grade_data_to_sheets():
@@ -404,6 +421,12 @@ def push_all_grade_data_to_sheets():
     assignment_id_to_names = get_assignment_id_to_names(gradescope_client)
     sheet_api_instance = create_sheet_api_instance()
     get_sub_sheet_titles_to_ids(sheet_api_instance)
+
+    # Pyturis is an assignment specific to the CS10 course. It is retrieved from the PrarieLearn version of the course.
+    if INCLUDE_PYTURIS:
+        push_pl_assignment_csv_to_gradebook(PYTURIS_ASSIGNMENT_ID, "Pyturis")
+
+    populate_spreadsheet_gradebook(assignment_id_to_names, sheet_api_instance)
     make_batch_request(sheet_api_instance)
 
     # For all assignments, create the request for each assignment
@@ -533,11 +556,94 @@ def populate_spreadsheet_gradebook(assignment_id_to_names, sheet_api_instance):
     produce_gradebook_for_category(sorted_postterms, "Postterms", formula_list)
 
 
+def create_request_to_add_assignment_column_titles(assignments, type):
+    """
+    Creates the request that adds assignment columns to the gradebook for the corresponding type of assignment.
+
+    Args:
+        assignments: List of assignment columns in order of appearance on the spreadsheet for a given assignment type.
+        type: The assignment type, which can be one of the following ["Labs", "Discussions", "Projects", "Midterms", "Postterms", "Pyturis"]
+
+    Returns:
+
+    """
+    global subsheet_titles_to_ids
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(assignments)
+    assignment_list_as_csv = output.getvalue()
+    output.close()
+    assemble_rest_request_for_assignment(assignment_list_as_csv, sheet_id=subsheet_titles_to_ids[type], rowIndex=0, columnIndex=3)
+
+
+def retrieve_PL_scores_for_one_assignment(assignment_id):
+    """
+    Fetches student grades for ONE assignment from PrairieLearn as JSON.
+
+    Note: You will need to generate a personal token in PrairieLearn found under the settings, andadd it the .env file.
+    Parameters: assignment_id: assignment_id for the PraireLearn Pyturis assignment
+    Returns:
+    dict: A dictionary containing student grades for one assessment in PL if the request is successful. If an error occurs, a dictionary with an error message is returned.
+    Raises:
+        Exception: Catches any unexpected errors and includes a descriptive message.
+    """
+    try:
+        headers = {'Private-Token': PL_API_TOKEN}
+        url = PL_SERVER + f"/course_instances/{PL_COURSE_ID}/assessments/{assignment_id}/assessment_instances"
+        r = backoff_utils.backoff(requests.get, args = [url], kwargs = {'headers': headers}, max_tries = 3,  max_delay = 30, strategy = backoff_utils.strategies.Exponential)
+        data = r.json()
+        return data
+    except Exception as e:
+        print(e)
+
+
+def make_csv_for_one_PL_assignment(json_assignment_scores):
+    """
+    Converts PL json scores from one assignment to csv.
+
+    Args:
+        json_assignment_scores (dict): The json response from PL containing scores for a single assignment. The keys present are specified below. All values are converted to String form.
+        ["user_name", "user_id", "points", "max_points", "score_perc",
+        "highest_score", "assessment_number", "modified_at", "assessment_name",
+        "start_date", "assessment_title", "assessment_label", "user_role",
+        "duration_seconds", "group_name", "time_remaining", "assessment_id",
+        "group_id", "user_uid", "assessment_instance_number",
+        "assessment_set_abbreviation", "group_uids", "assessment_instance_id",
+        "open", "max_bonus_points"]
+
+    Returns:
+        None
+
+    """
+    output = io.StringIO()
+    first_columns = PL_ASSIGNMENT_COLUMN_ORDER
+    additional_columns = json_assignment_scores[0].keys() - set(first_columns)
+    ordered_fields = first_columns + list(additional_columns)
+    writer = csv.DictWriter(output, fieldnames=ordered_fields)
+    writer.writeheader()
+    writer.writerows(json_assignment_scores)
+    assignment_scores_as_csv = output.getvalue()
+    output.close()
+    return assignment_scores_as_csv
+
+
+def push_pl_assignment_csv_to_gradebook(assignment_id, subsheet_name):
+    """
+    Pushes the csv scores for a PL assignment to GradeScope
+
+    Args:
+        assignment_id: assignment_id for the PrairieLearn assignment
+        subsheet_name: Name of subsheet where the PL assignment's grades should be pasted.
+
+    Returns:
+        None
+    """
+    assignment_scores_as_csv = make_csv_for_one_PL_assignment(retrieve_PL_scores_for_one_assignment(assignment_id))
+    assemble_rest_request_for_assignment(assignment_scores_as_csv, sheet_id=subsheet_titles_to_ids[subsheet_name])
+
 
 def main():
     """
-    Main function to run the grade synchronization process.
-    
     This script retrieves data from a Gradescope course instance and writes the data to Google Sheets. If there are no arguments passed into this script, this script will do the following:
     1. Retrieves a list of assignments from Gradescope
     2. Determines which assignments already have sub sheets in the configured Google spreadsheet
@@ -552,17 +658,11 @@ def main():
 
     The number of api calls the script makes is constant with respect to the number of assignments. The number of calls = [Number of categories of assignments] + 2
     """
-    try:
-        logger.info("Starting grade synchronization process")
-        start_time = time.time()
-        push_all_grade_data_to_sheets()
-        end_time = time.time()
-        logger.info("Grade synchronization completed successfully")
-        logger.info(f"Finished in {round(end_time - start_time, 2)} seconds")
-        
-    except Exception as e:
-        logger.error(f"An error occurred during grade synchronization: {str(e)}")
-        sys.exit(1)
+    # Use the logger to calculate the amount of time for starting and completing the request.
+    start_time = time.time()
+    push_all_grade_data_to_sheets()
+    end_time = time.time()
+    logger.info(f"Finished in {round(end_time - start_time, 2)} seconds")
 
 if __name__ == "__main__":
     main()

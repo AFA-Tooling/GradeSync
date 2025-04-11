@@ -277,7 +277,7 @@ def retrieve_preexisting_columns(assignment_type, sheet_api_instance):
     Retrieves the columns in the subsheet corresponding to a given assignment type.
 
     Args:
-        assignment_type (String): One of the following assignment types: ["Labs", "Discussions", "Projects", "Midterms", "Postterms", "Pyturis"]
+        assignment_type (String): One of the following assignment types: ["Labs", "Discussions", "Projects", "Midterms", "Postterms"]
         sheet_api_instance (googleapiclient.discovery.Resource): The sheet api instance
     Returns:
         None
@@ -293,7 +293,7 @@ def retrieve_grades_from_gradescope(gradescope_client, assignment_id = ASSIGNMEN
     Retrieves grades for one GradeScope assignment in csv form.
 
     Args:
-        gradescope_client (String): One of the following assignment types: ["Labs", "Discussions", "Projects", "Midterms", "Postterms", "Pyturis"]
+        gradescope_client (String): One of the following assignment types: ["Labs", "Discussions", "Projects", "Midterms", "Postterms"]
         assignment_id (String): The Gradescope assignment ID of the assignment for which grades are to be retrieved.
     Returns:
         None
@@ -395,7 +395,7 @@ def make_batch_request(sheet_api_instance):
 
 def push_all_grade_data_to_sheets():
     """
-    Encapsulates the entire process of retrieving grades from GradeScope and Pyturis from PL and pushing to sheets.
+    Encapsulates the entire process of retrieving grades from GradeScope and pushing to sheets.
 
     Returns:
         None
@@ -404,7 +404,6 @@ def push_all_grade_data_to_sheets():
     assignment_id_to_names = get_assignment_id_to_names(gradescope_client)
     sheet_api_instance = create_sheet_api_instance()
     get_sub_sheet_titles_to_ids(sheet_api_instance)
-    make_batch_request(sheet_api_instance)
 
     # For all assignments, create the request for each assignment
     for id in assignment_id_to_names:
@@ -498,7 +497,7 @@ def populate_spreadsheet_gradebook(assignment_id_to_names, sheet_api_instance):
 
         Args:
             sorted_assignment_list (list): A numerically sorted list of assignment names for a given category.
-            category (String): The assignment category, which can be one of the following ["Labs", "Discussions", "Projects", "Midterms", "Postterms", "Pyturis"]
+            category (String): The assignment category, which can be one of the following ["Labs", "Discussions", "Projects", "Midterms", "Postterms"]
             formula_list (list): This list represents the contents of a given assignment's column. It contains a spreadsheet formula to retrieve grade information. The formulas are explained in comments above the constants GRADE_RETRIEVAL_SPREADSHEET_FORMULA and DISCUSSION_COMPLETION_INDICATOR_FORMULA
 
         Returns:

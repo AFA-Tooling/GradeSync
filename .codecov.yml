@@ -1,0 +1,10 @@
+coverage:
+  precision: 2  # Coverage values will show up to 2 decimal places
+  range: "70...100"  # Expected coverage range for reporting
+  status:
+    project:
+      default:
+        target: 50%  # Minimum overall coverage for the project
+    patch:
+      default:
+        target: 50%  # Minimum coverage required for modified or added files in a PR

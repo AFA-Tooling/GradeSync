@@ -13,5 +13,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Expose the port that FastAPI will run on
 EXPOSE 8000
 
-# Command to run FastAPI using Uvicorn
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
+ENV PYTHONPATH=/app
+
+# Command to run tests and then FastAPI using Uvicorn
+CMD ["uvicorn", "api.app:app", "--host", "0.0.0.0", "--port", "8000"]

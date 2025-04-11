@@ -95,8 +95,7 @@ def gradescope_session(client):
         @wraps(func)
         def wrapper(*args, **kwargs):
             try:
-                # Refresh the GradescopeClient inactivity period and log in again
-                # if we were logged out automatically
+                # Log in again if we are logged out
                 client.log_in(GRADESCOPE_EMAIL, GRADESCOPE_PASSWORD)
                 # Execute the decorated function
                 return func(*args, **kwargs)

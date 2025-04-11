@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse, PlainTextResponse
-from gradescopeClient import GradescopeClient
-from utils import *
+from api.gradescopeClient import GradescopeClient
+from api.utils import *
 import gspread
 from google.oauth2.service_account import Credentials
 from backoff_utils import strategies
@@ -9,7 +9,6 @@ from backoff_utils import backoff
 import requests
 
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
-
 credentials_json = os.getenv("SERVICE_ACCOUNT_CREDENTIALS")
 credentials_dict = json.loads(credentials_json)
 credentials = Credentials.from_service_account_info(credentials_dict, scopes=SCOPES)
@@ -69,7 +68,7 @@ def fetchGrades(class_id: str, assignment_id: str, file_type: str = "json"):
         return json_content
     else:
         return JSONResponse(
-            content={"message": f"Failed to fetch grades. "},
+            content={"message": f"Failed to fetch grades."},
             status_code=int(result.status_code)
         )
 
@@ -113,7 +112,7 @@ def get_assignment_info(class_id: str = None):
     # if class_id is None, use CS10's CS_10_COURSE_ID
     class_id = class_id or CS_10_GS_COURSE_ID
 
-    if class_id == 902165: #CS10_FALL_2024_DUMMY class
+    if str(class_id) == "902165": #CS10_FALL_2024_DUMMY class
         # Load assignment data from local JSON file
         # This JSON is for the CS10_FALL_2024 dummy Gradescope test class
         local_json_path = os.path.join(os.path.dirname(__file__), "cs10_assignments.json")

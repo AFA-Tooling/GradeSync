@@ -1,7 +1,7 @@
+python-dotenv
 selenium
-requests
-bs4
-dotenv
-webdriver_manager
+webdriver-manager
 gspread
+pandas
+google-auth
 pandas

@@ -1,0 +1,78 @@
+name: Deploy Gradescope Sync Job
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  IMAGE_NAME: cs10-sp25-production
+  JOB_NAME: cs10-sp25-production
+  SCHEDULE_NAME: GradeScope Integration Update
+  CRON_SCHEDULE: '0 */2 * * *' # Runs every 2 hours
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  REGION: ${{ secrets.GCP_REGION }}
+  REPO_NAME: ${{ secrets.ARTIFACT_REPO }}
+  SERVICE_ACCOUNT_EMAIL: ${{ secrets.SERVICE_ACCOUNT_EMAIL }}
+  WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}
+
+jobs:
+  deploy:
+    name: Deploy Cloud Run Job
+    runs-on: ubuntu-latest
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Google Cloud Authentication
+        uses: google-github-actions/auth@v2
+        with:
+          token_format: access_token
+          workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.SERVICE_ACCOUNT_EMAIL }}
+
+      - name: Configure Docker for the Artifact Registry
+        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+
+      - name: Build Docker image
+        run: |
+          docker build -t ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/${{ env.IMAGE_NAME }}:latest .
+
+      - name: Push Docker image to Artifact Registry
+        run: |
+          docker push ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/${{ env.IMAGE_NAME }}:latest
+
+      - name: Deploy Cloud Run Job
+        run: |
+          gcloud run jobs describe ${{ env.JOB_NAME }} --region=${{ env.REGION }} \
+          && gcloud run jobs update ${{ env.JOB_NAME }} \
+              --image=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/${{ env.IMAGE_NAME }}:latest \
+              --region=${{ env.REGION }} \
+              --set-env-vars=GOOGLE_PROJECT=${{ env.PROJECT_ID }} \
+          || gcloud run jobs create ${{ env.JOB_NAME }} \
+              --image=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/${{ env.IMAGE_NAME }}:latest \
+              --region=${{ env.REGION }} \
+              --set-env-vars=GOOGLE_PROJECT=${{ env.PROJECT_ID }} \
+              --execute-now
+
+      - name: Create/update Cloud Scheduler job
+        run: |
+          gcloud scheduler jobs describe ${{ env.SCHEDULE_NAME }} --location=${{ env.REGION }} \
+          && gcloud scheduler jobs update http ${{ env.SCHEDULE_NAME }} \
+              --location=${{ env.REGION }} \
+              --schedule="${{ env.CRON_SCHEDULE }}" \
+              --uri="https://${{ env.REGION }}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${{ env.PROJECT_ID }}/jobs/${{ env.JOB_NAME }}:run" \
+              --http-method=POST \
+              --oauth-service-account-email=${{ env.SERVICE_ACCOUNT_EMAIL }} \
+              --time-zone="America/Los_Angeles" \
+          || gcloud scheduler jobs create http ${{ env.SCHEDULE_NAME }} \
+              --location=${{ env.REGION }} \
+              --schedule="${{ env.CRON_SCHEDULE }}" \
+              --uri="https://${{ env.REGION }}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${{ env.PROJECT_ID }}/jobs/${{ env.JOB_NAME }}:run" \
+              --http-method=POST \
+              --oauth-service-account-email=${{ env.SERVICE_ACCOUNT_EMAIL }} \
+              --time-zone="America/Los_Angeles"

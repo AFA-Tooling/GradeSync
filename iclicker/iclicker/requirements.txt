@@ -1,0 +1,7 @@
+python-dotenv
+selenium
+webdriver-manager
+gspread
+pandas
+google-auth
+pandas

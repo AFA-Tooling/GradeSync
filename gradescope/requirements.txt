@@ -9,3 +9,4 @@ pandas
 backoff_utils
 requests
 croniter==6.0.0
+beautifulsoup4

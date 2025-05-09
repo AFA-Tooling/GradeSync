@@ -26,6 +26,7 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
       - name: Authenticate to GCP
         uses: google-github-actions/auth@v1
         with:
@@ -34,9 +35,17 @@ jobs:
       - name: Configure Docker for the Artifact Registry
         run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
 
-      - name: Build Docker image
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image with Buildx
         run: |
-          docker build -t ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/${{ env.IMAGE_NAME }}:latest .
+          docker buildx build \
+            --builder default \
+            --platform linux/amd64 \
+            --tag ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/${{ env.IMAGE_NAME }}:latest \
+            --load \
+            .
 
       - name: Push Docker image to Artifact Registry
         run: |

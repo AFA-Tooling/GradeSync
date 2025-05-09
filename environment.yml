@@ -1,0 +1,23 @@
+name: gradesync
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  # core
+  - python=3.10
+  - pip
+  # conda packages (yaml support + data)
+  - pyyaml            # provides the `yaml` module
+  - pandas
+  - libarchive        # fixes the libarchive.19.dylib missing error
+  # pip-installed libraries
+  - pip:
+    - fullGSapi==1.3.11
+    - python-dotenv==1.0.1
+    - google-api-python-client
+    - google-auth
+    - google-auth-oauthlib
+    - backoff
+    - backoff_utils
+    - requests
+    - gspread

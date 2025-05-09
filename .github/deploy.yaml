@@ -14,7 +14,6 @@ env:
   REGION: ${{ secrets.GCP_REGION }}
   REPO_NAME: ${{ secrets.ARTIFACT_REPO }}
   SERVICE_ACCOUNT_EMAIL: ${{ secrets.SERVICE_ACCOUNT_EMAIL }}
-  WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}
 
 jobs:
   deploy:
@@ -28,12 +27,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Google Cloud Authentication
-        uses: google-github-actions/auth@v2
-        with:
-          token_format: access_token
-          workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ env.SERVICE_ACCOUNT_EMAIL }}
+      - name: Authenticate with Google Cloud using Service Account Key
+        run: |
+          echo "${{ secrets.GCP_SA_KEY }}" > "${{ github.workspace }}/gcp-key.json"
+          export GOOGLE_APPLICATION_CREDENTIALS="${{ github.workspace }}/gcp-key.json"
+          gcloud auth activate-service-account --key-file="${{ github.workspace }}/gcp-key.json"
 
       - name: Configure Docker for the Artifact Registry
         run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet

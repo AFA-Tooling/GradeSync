@@ -27,11 +27,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Authenticate with Google Cloud using Service Account Key
-        run: |
-          echo "${{ secrets.GCP_SA_KEY }}" > "${{ github.workspace }}/gcp-key.json"
-          export GOOGLE_APPLICATION_CREDENTIALS="${{ github.workspace }}/gcp-key.json"
-          gcloud auth activate-service-account --key-file="${{ github.workspace }}/gcp-key.json"
+      - uses: google-github-actions/auth@v1
+        with:
+          credentials_json: ${{ secrets.GCP_KEY_JSON }}
+
+      - name: List GCP Projects
+        run: gcloud projects list
 
       - name: Configure Docker for the Artifact Registry
         run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet

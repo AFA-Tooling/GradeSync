@@ -26,13 +26,10 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
-      - uses: google-github-actions/auth@v1
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v1
         with:
           credentials_json: ${{ secrets.GCP_KEY_JSON }}
-
-      - name: List GCP Projects
-        run: gcloud projects list
 
       - name: Configure Docker for the Artifact Registry
         run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet

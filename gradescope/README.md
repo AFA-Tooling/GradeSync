@@ -216,6 +216,63 @@ gcloud auth login
 gcloud auth configure-docker us-west1-docker.pkg.dev
 ```
 
+Under gcloud auth login, if it asks, then follow the steps below:
+
+```
+Welcome! This command will take you through the configuration of gcloud.
+
+Settings from your current configuration [default] are:
+core:
+  account: manan.bhargava@berkeley.edu
+  disable_usage_reporting: 'False'
+  project: braided-course-459100-t9
+run:
+  region: us-west1
+
+Pick configuration to use:
+ [1] Re-initialize this configuration [default] with new settings 
+ [2] Create a new configuration
+Please enter your numeric choice:  1
+
+Your current configuration has been set to: [default]
+
+You can skip diagnostics next time by using the following flag:
+  gcloud init --skip-diagnostics
+
+Network diagnostic detects and fixes local network connection issues.
+Checking network connection...done.                                                                                                         
+Reachability Check passed.
+Network diagnostic passed (1/1 checks passed).
+
+Choose the account you want to use for this configuration.
+To use a federated user account, exit this command and sign in to the gcloud CLI with your login configuration file, then run this command 
+again.
+
+Select an account:
+ [1] manan.bhargava@berkeley.edu
+ [2] mcbchatbot2@gmail.com
+ [3] Sign in with a new Google Account
+ [4] Skip this step
+Please enter your numeric choice:  1
+
+You are signed in as: [manan.bhargava@berkeley.edu].
+
+Pick cloud project to use: 
+ [1] cal-hacks-summer-23
+ [2] dnasf-website-test1
+ [3] eecs-gradeview
+ [4] w261-trusted-images
+ [5] Enter a project ID
+ [6] Create a new project
+Please enter numeric choice or text value (must exactly match list item):  3
+
+Your current project has been set to: [eecs-gradeview].
+
+Do you want to configure a default Compute Region and Zone? (Y/n)?  n
+
+The Google Cloud CLI is configured and ready to use!
+```
+
 ### **Step 6: Push the Tagged Docker Container**
 Push the Docker image to Google Cloud Artifact Registry:
 ```bash

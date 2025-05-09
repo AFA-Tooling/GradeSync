@@ -3,11 +3,11 @@ name: Deploy Gradescope Sync Job
 on:
   push:
     branches:
-      - main
+      - gradesync-ci/cd-(new-branch)
 
 env:
-  IMAGE_NAME: cs10-sp25-production
-  JOB_NAME: cs10-sp25-production
+  IMAGE_NAME: cs10-sp25-test
+  JOB_NAME: cs10-sp25-test
   SCHEDULE_NAME: GradeScope Integration Update
   CRON_SCHEDULE: '0 */2 * * *' # Runs every 2 hours
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}

@@ -43,7 +43,7 @@ logger.info("Starting the gradescope_to_spreadsheet script.")
 # Load JSON variables
 # Note: this class JSON name can be made customizable, inputted through a front end user interface for example
 # But the default is cs10_fall2024.json
-class_json_name = 'cs10_sp25_test.json'
+class_json_name = 'cs10_sp25.json'
 config_path = os.path.join(os.path.dirname(__file__), 'config/', class_json_name)
 with open(config_path, "r") as config_file:
     config = json.load(config_file)
@@ -460,16 +460,10 @@ def populate_spreadsheet_gradebook(assignment_id_to_names, sheet_api_instance):
     new_midterms = midterms - set(preexisting_midterm_columns)
 
     filter_postterms = lambda assignment: (("postterm" in assignment.lower()) or ("posterm" in assignment.lower())) and ("discussion" not in assignment.lower())
-    logger.info(f"Assignment names: {assignment_names}")
 
     preexisting_postterm_columns = retrieve_preexisting_columns("Postterms", sheet_api_instance)
-    logger.info(f"Preexisting postterm columns: {preexisting_postterm_columns}")
-
     postterms = set(filter(filter_postterms, assignment_names))
-    logger.info(f"Filtered postterms: {postterms}")
-
     new_postterms = postterms - set(preexisting_postterm_columns)
-    logger.info(f"New postterms: {new_postterms}")
 
     def extract_number_from_assignment_title(assignment):
         """

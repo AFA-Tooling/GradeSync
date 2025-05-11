@@ -410,6 +410,9 @@ def push_all_grade_data_to_sheets():
         prepare_request_for_one_assignment(sheet_api_instance, gradescope_client=gradescope_client,
                                                                assignment_name=assignment_id_to_names[id], assignment_id=id)
 
+    # Populate the gradebook
+    populate_spreadsheet_gradebook(assignment_id_to_names, sheet_api_instance)
+
     # Create the batch google sheet request in order to populate the google sheet
     make_batch_request(sheet_api_instance)
 
@@ -457,10 +460,16 @@ def populate_spreadsheet_gradebook(assignment_id_to_names, sheet_api_instance):
     new_midterms = midterms - set(preexisting_midterm_columns)
 
     filter_postterms = lambda assignment: (("postterm" in assignment.lower()) or ("posterm" in assignment.lower())) and ("discussion" not in assignment.lower())
+    logger.info(f"Assignment names: {assignment_names}")
 
     preexisting_postterm_columns = retrieve_preexisting_columns("Postterms", sheet_api_instance)
+    logger.info(f"Preexisting postterm columns: {preexisting_postterm_columns}")
+
     postterms = set(filter(filter_postterms, assignment_names))
+    logger.info(f"Filtered postterms: {postterms}")
+
     new_postterms = postterms - set(preexisting_postterm_columns)
+    logger.info(f"New postterms: {new_postterms}")
 
     def extract_number_from_assignment_title(assignment):
         """

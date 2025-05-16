@@ -1,0 +1,20 @@
+FROM selenium/standalone-chrome:latest
+
+# Set working directory
+WORKDIR /iclicker
+
+# Copy code
+COPY . /iclicker
+
+# Install Python & pip (if not already included — usually is)
+USER root
+RUN apt-get update && apt-get install -y python3-pip
+
+# Install dependencies
+RUN pip3 install --no-cache-dir -r requirements.txt
+
+# Give execute permission to your script
+RUN chmod +x iclicker_to_spreadsheet.py
+
+# Set the default command
+ENTRYPOINT ["python3", "iclicker_to_spreadsheet.py"]

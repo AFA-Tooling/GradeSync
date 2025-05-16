@@ -1,0 +1,3 @@
+[submodule "iclicker-submodule"]
+	path = iclicker-submodule
+	url = https://github.com/AFA-Tooling/iClicker.git

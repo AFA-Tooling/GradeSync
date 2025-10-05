@@ -12,6 +12,12 @@
 - If you do not have a password setup on Gradescope, you will need to create a password.
 - There should be three variables total in the `.env` file. Follow step 2 to add the `SERVICE_ACCOUNT_CREDENTIALS` variable.
 
+The env should contain the following information:
+`GRADESCOPE_EMAIL=""`
+`GRADESCOPE_PASSWORD=""`
+`SERVICE_ACCOUNT_CREDENTIALS={}`
+`PL_API_TOKEN=`
+
 
 ### 2. Google Authentication Setup
 

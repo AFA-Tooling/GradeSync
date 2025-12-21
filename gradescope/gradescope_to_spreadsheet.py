@@ -20,6 +20,7 @@ import pandas as pd
 import backoff_utils
 import requests
 from datetime import datetime
+from difflib import SequenceMatcher
 
 load_dotenv()
 GRADESCOPE_EMAIL = os.getenv("GRADESCOPE_EMAIL")
@@ -75,16 +76,21 @@ A submitted discussion is awarded full credit; discussions are not manually grad
 """
 # Updated these two lines, given the updated CSV return format of GradeScope
 
-# Formula for Spring 2025 GradeScope Instance
+# # Formula for Fall 2025 GradeScope Instance
 GRADE_RETRIEVAL_SPREADSHEET_FORMULA = '=XLOOKUP(C:C, INDIRECT( INDIRECT(ADDRESS(1, COLUMN(), 4)) & "!B:B"), INDIRECT(INDIRECT(ADDRESS(1, COLUMN(), 4)) & "!E:E"))'
 DISCUSSION_COMPLETION_INDICATOR_FORMULA = '=IF(XLOOKUP($C:$C, INDIRECT(INDIRECT(ADDRESS(1,COLUMN(),4)) & "!B:B"), INDIRECT(INDIRECT(ADDRESS(1,COLUMN(),4)) & "!G:G")) = "Missing", 0, 1)'
-
+# #For autoreminder test
+# GRADE_RETRIEVAL_SPREADSHEET_FORMULA = '=XLOOKUP(C:C, INDIRECT( INDIRECT(ADDRESS(1, COLUMN(), 4)) & "!C:C"), INDIRECT(INDIRECT(ADDRESS(1, COLUMN(), 4)) & "!E:E"))'
+# DISCUSSION_COMPLETION_INDICATOR_FORMULA = '=IF(XLOOKUP($C:$C, INDIRECT(INDIRECT(ADDRESS(1,COLUMN(),4)) & "!C:C"), INDIRECT(INDIRECT(ADDRESS(1,COLUMN(),4)) & "!G:G")) = "Missing", 0, 1)'
 # This is not a constant; it is a variable that needs global scope. It should not be modified by the user
 subsheet_titles_to_ids = None
 # Tracking the number of_attempts to_update a sheet.
 number_of_retries_needed_to_update_sheet = 0
 
 request_list = []
+
+# Global list to track all created/updated assignment sub-sheets for the index
+assignment_sheets_created = []
 
 # Define a depracated decorator to warn users about deprecated functions.
 def deprecated(func):
@@ -117,11 +123,15 @@ def create_sheet_and_request_to_populate_it(sheet_api_instance, assignment_score
     Returns:
         None: This function does not return a value.
     """
-    global number_of_retries_needed_to_update_sheet
+    global number_of_retries_needed_to_update_sheet, assignment_sheets_created, subsheet_titles_to_ids
     try:
+        # Ensure assignment_name is stripped to avoid whitespace issues
+        assignment_name = assignment_name.strip()
         sub_sheet_titles_to_ids = get_sub_sheet_titles_to_ids(sheet_api_instance)
-
+        
+        logger.debug(f"Checking if assignment '{assignment_name}' exists in sheet cache")
         if assignment_name not in sub_sheet_titles_to_ids:
+            logger.info(f"Sheet '{assignment_name}' does not exist, creating new sheet")
             create_sheet_rest_request = {
                 "requests": {
                     "addSheet": {
@@ -134,16 +144,21 @@ def create_sheet_and_request_to_populate_it(sheet_api_instance, assignment_score
             request = sheet_api_instance.batchUpdate(spreadsheetId=SPREADSHEET_ID, body=create_sheet_rest_request)
             response = make_request(request)
             sheet_id = response['replies'][0]['addSheet']['properties']['sheetId']
+            # Update the global cache with the newly created sheet
+            subsheet_titles_to_ids[assignment_name] = sheet_id
+            assignment_sheets_created.append(assignment_name)
+            logger.info(f"Created new sheet '{assignment_name}' with ID {sheet_id}")
         else:
             sheet_id = sub_sheet_titles_to_ids[assignment_name]
+            assignment_sheets_created.append(assignment_name)
+            logger.debug(f"Sheet '{assignment_name}' already exists with ID {sheet_id}")
         assemble_rest_request_for_assignment(assignment_scores, sheet_id)
         logger.info(f"Created sheets request for {assignment_name}")
         number_of_retries_needed_to_update_sheet = 0
     except HttpError as err:
-        logger.error(f"An HttpError has occurred: {err}")
+        logger.error(f"An HttpError has occurred while creating sheet for {assignment_name}: {err}")
     except Exception as err:
-        logger.error(f"An unknown error has occurred: {err}")
-
+        logger.error(f"An unknown error has occurred while creating sheet for {assignment_name}: {err}")
 
 def create_sheet_api_instance():
     """
@@ -158,26 +173,222 @@ def create_sheet_api_instance():
     return sheet_api_instance
 
 
-def get_sub_sheet_titles_to_ids(sheet_api_instance):
+def create_or_get_index_sheet(sheet_api_instance):
+    """
+    Creates an index sheet (if it doesn't exist) that lists all assignment sub-sheets.
+    
+    Args:
+        sheet_api_instance (googleapiclient.discovery.Resource): The sheet api instance
+    
+    Returns:
+        str: The sheet ID of the index sheet
+    """
+    global subsheet_titles_to_ids
+    index_sheet_name = "Index"
+    
+    # Check if index sheet already exists
+    if index_sheet_name in subsheet_titles_to_ids:
+        return subsheet_titles_to_ids[index_sheet_name]
+    
+    # Create index sheet if it doesn't exist
+    create_sheet_rest_request = {
+        "requests": {
+            "addSheet": {
+                "properties": {
+                    "title": index_sheet_name
+                }
+            }
+        }
+    }
+    request = sheet_api_instance.batchUpdate(spreadsheetId=SPREADSHEET_ID, body=create_sheet_rest_request)
+    response = make_request(request)
+    index_sheet_id = response['replies'][0]['addSheet']['properties']['sheetId']
+    
+    # Update the global mapping
+    subsheet_titles_to_ids[index_sheet_name] = index_sheet_id
+    
+    logger.info(f"Created index sheet with ID: {index_sheet_id}")
+    return index_sheet_id
+
+
+def populate_index_sheet(sheet_api_instance, assignment_id_to_names):
+    """
+    Populates the index sheet with a list of all assignment sub-sheets.
+    Each assignment name is a clickable hyperlink that jumps to the corresponding sub-sheet.
+    
+    Args:
+        sheet_api_instance (googleapiclient.discovery.Resource): The sheet api instance
+        assignment_id_to_names (dict): Dictionary mapping assignment IDs to assignment names
+    
+    Returns:
+        None
+    """
+    global subsheet_titles_to_ids, assignment_sheets_created
+    
+    # Get or create the index sheet
+    index_sheet_id = create_or_get_index_sheet(sheet_api_instance)
+    
+    # Get all current sheets to filter assignments
+    is_not_optional = lambda assignment: not "optional" in assignment.lower()
+    assignment_names = sorted([name for name in assignment_id_to_names.values() if is_not_optional(name)])
+    
+    logger.info(f"Total assignments from Gradescope: {len(assignment_id_to_names)}")
+    logger.info(f"Non-optional assignments: {len(assignment_names)}")
+    logger.info(f"Sheets created in Google Sheets: {len(subsheet_titles_to_ids) if subsheet_titles_to_ids else 0}")
+    
+    # Build update request using updateCells API instead of CSV to handle formulas correctly
+    # This allows us to set formulas and values without CSV quoting issues
+    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    rows = []
+    
+    # Header row
+    header_cells = [
+        {"userEnteredValue": {"stringValue": "Assignment Name"}},
+        {"userEnteredValue": {"stringValue": "Link to Sheet"}},
+        {"userEnteredValue": {"stringValue": "Status"}}
+    ]
+    rows.append({"values": header_cells})
+    
+    # Data rows
+    actual_row_idx = 1  # Track actual row index for formula references
+    for assignment_name in assignment_names:
+        if assignment_name in subsheet_titles_to_ids:
+            sheet_id = subsheet_titles_to_ids[assignment_name]
+            status = current_time if assignment_name in assignment_sheets_created else "Existing"
+            
+            # Create cells for this row
+            cells = [
+                {"userEnteredValue": {"stringValue": assignment_name}},
+                # Use formula that references the assignment name in column A
+                {"userEnteredValue": {"formulaValue": f'=HYPERLINK("#gid={sheet_id}",A{actual_row_idx+1})'}},
+                {"userEnteredValue": {"stringValue": status}}
+            ]
+            rows.append({"values": cells})
+            actual_row_idx += 1
+        else:
+            logger.warning(f"Assignment '{assignment_name}' from Gradescope not found in Google Sheets")
+    
+    # Create the update request
+    update_request = {
+        "updateCells": {
+            "range": {
+                "sheetId": index_sheet_id,
+                "startRowIndex": 0,
+                "startColumnIndex": 0
+            },
+            "rows": rows,
+            "fields": "userEnteredValue"
+        }
+    }
+    
+    store_request(update_request)
+    logger.info(f"Created index with {len(rows)-1} clickable links to assignment sheets")
+
+def get_sub_sheet_titles_to_ids(sheet_api_instance, force_refresh=False):
     """
     If subsheet_titles_to_ids, a dict mapping subsheet titles to sheet ids, has already been created,
     return it. If not, retrieve that info from Google sheets.
 
     Args:
         sheet_api_instance (googleapiclient.discovery.Resource): The sheet api instance
+        force_refresh (bool): If True, force refresh the cache from Google Sheets
 
     Returns:
         dict: A dict mapping subsheet names (titles) to sheet ids.
     """
     global subsheet_titles_to_ids
-    if subsheet_titles_to_ids:
+    if subsheet_titles_to_ids and not force_refresh:
         return subsheet_titles_to_ids
     logger.info("Retrieving subsheet titles to ids")
     request = sheet_api_instance.get(spreadsheetId=SPREADSHEET_ID, fields='sheets/properties')
     sheets = make_request(request)
-    subsheet_titles_to_ids = {sheet['properties']['title']: sheet['properties']['sheetId'] for sheet in
+    # Strip whitespace from sheet titles to ensure consistent naming
+    subsheet_titles_to_ids = {sheet['properties']['title'].strip(): sheet['properties']['sheetId'] for sheet in
                                sheets['sheets']}
     return subsheet_titles_to_ids
+
+
+def get_sheets_to_delete(assignment_id_to_names, sheet_titles_to_ids):
+    """
+    Identifies sheets in Google Sheets that are not in the Gradescope assignment list.
+    These should be deleted to maintain consistency.
+    
+    Args:
+        assignment_id_to_names (dict): Dictionary of assignment IDs to names from Gradescope
+        sheet_titles_to_ids (dict): Dictionary of sheet titles to IDs from Google Sheets
+        
+    Returns:
+        list: List of (sheet_id, sheet_title) tuples to delete
+    """
+    gradescope_names = set(assignment_id_to_names.values())
+    
+    # Reserved sheets that should never be deleted
+    # Includes category sheets, index, and other summary/utility sheets
+    reserved_sheets = {
+        "Dashboard",
+        "Labs",
+        "Discussions",
+        "Projects",
+        "Lecture Quizzes",
+        "Midterms",
+        "Postterms",
+        "Index",
+        "Roster",
+        "Pyturis",
+        "PrarieLearn Gradebook"
+    }
+    
+    sheets_to_delete = []
+    for sheet_title, sheet_id in sheet_titles_to_ids.items():
+        # Skip reserved sheets
+        if sheet_title in reserved_sheets:
+            continue
+        
+        # Check if this sheet exists in Gradescope
+        if sheet_title not in gradescope_names:
+            sheets_to_delete.append((sheet_id, sheet_title))
+            logger.info(f"Marked for deletion: '{sheet_title}' (not in Gradescope)")
+    
+    return sheets_to_delete
+
+
+def delete_sheets(sheet_api_instance, sheets_to_delete):
+    """
+    Deletes the specified sheets from Google Sheets.
+    
+    Args:
+        sheet_api_instance (googleapiclient.discovery.Resource): The sheet api instance
+        sheets_to_delete (list): List of (sheet_id, sheet_title) tuples to delete
+        
+    Returns:
+        None
+    """
+    if not sheets_to_delete:
+        logger.info("No sheets to delete")
+        return
+    
+    logger.info(f"Deleting {len(sheets_to_delete)} inconsistent sheets...")
+    delete_requests = []
+    for sheet_id, sheet_title in sheets_to_delete:
+        logger.info(f"Deleting sheet: {sheet_title}")
+        delete_request = {
+            "deleteSheet": {
+                "sheetId": sheet_id
+            }
+        }
+        delete_requests.append(delete_request)
+    
+    batch_delete_request = {
+        "requests": delete_requests
+    }
+    
+    try:
+        batch_delete = sheet_api_instance.batchUpdate(spreadsheetId=SPREADSHEET_ID, body=batch_delete_request)
+        make_request(batch_delete)
+        logger.info(f"Successfully deleted {len(sheets_to_delete)} sheets")
+    except HttpError as err:
+        logger.error(f"Error deleting sheets: {err}")
 
 
 def is_429_error(exception):
@@ -239,9 +450,13 @@ def make_request(request):
         None
     """
     logger.info(f"Making request: {request}")
-    response = request.execute()
-    logger.info(f"Request completed successfully")
-    return response
+    try:
+        response = request.execute()
+        logger.info(f"Request completed successfully")
+        return response
+    except HttpError as e:
+        logger.error(f"HttpError in make_request: {e.content.decode('utf-8') if hasattr(e, 'content') else str(e)}")
+        raise
 
 
 def assemble_rest_request_for_assignment(assignment_scores, sheet_id, rowIndex = 0, columnIndex=0):
@@ -288,6 +503,120 @@ def retrieve_preexisting_columns(assignment_type, sheet_api_instance):
     return first_row[0][3:]
 
 
+def normalize_name_for_matching(name):
+    """
+    Normalizes assignment names for fuzzy matching.
+    Removes extra spaces, normalizes special characters, and handles case-insensitive matching.
+    Handles variations like:
+    - Case differences (With vs with)
+    - Extra characters at end (trailing 's')
+    - Punctuation differences (colon+dash vs colon+space)
+    - Missing/extra text in parentheses
+    
+    Args:
+        name (str): The assignment name to normalize
+        
+    Returns:
+        str: Normalized name for comparison
+    """
+    if not name:
+        return ""
+    
+    # Convert to lowercase for case-insensitive matching
+    normalized = name.lower().strip()
+    
+    # Remove common trailing artifacts (trailing s, extra spaces)
+    normalized = re.sub(r's+$', '', normalized)  # Remove trailing 's' characters
+    normalized = re.sub(r'\s+$', '', normalized)  # Remove trailing spaces
+    
+    # Normalize punctuation: convert various dash/colon patterns to a standard form
+    # "Project 4: RESUBMISSION - Artifact" -> "project 4: resubmission artifact"
+    # "Project 4 RESUBMISSION: Artifact" -> "project 4 resubmission artifact"
+    normalized = re.sub(r':\s*-\s*', ': ', normalized)  # ": -" -> ": "
+    normalized = re.sub(r'-\s+', ' ', normalized)  # "- " -> " "
+    normalized = re.sub(r'\s*:\s*', ': ', normalized)  # Normalize colons
+    
+    # Normalize parenthetical content - collapse multiple spaces
+    normalized = re.sub(r'\s+', ' ', normalized)  # Collapse multiple spaces to one
+    
+    # Remove extra characterization like "with snap!" or "with python" variations
+    # This helps match "Postterm 2: with Snap!" vs "Postterm 2: With Snap! (HOFs)"
+    # by removing the parenthetical parts for the base comparison
+    base_normalized = re.sub(r'\s*\([^)]*\)\s*', '', normalized)  # Remove all parenthetical content
+    base_normalized = re.sub(r'\s+', ' ', base_normalized)  # Clean up spacing after removal
+    
+    return base_normalized
+
+
+def find_matching_sheet_name(column_name, available_sheets):
+    """
+    Finds a matching sheet name for a given column name from the gradebook.
+    Handles minor naming differences through multiple matching strategies:
+    1. Exact match
+    2. Normalized match (case, punctuation, extra characters)
+    3. Prefix/substring matching (for cases where column name has extra info)
+    4. Similarity matching (for cases with significant textual differences)
+    
+    Args:
+        column_name (str): The column name from the gradebook
+        available_sheets (dict): Dictionary of available sheet names to IDs
+        
+    Returns:
+        str: The matching sheet name, or the original column_name if not found
+    """
+    # First try exact match
+    if column_name in available_sheets:
+        return column_name
+    
+    # Try normalized matching
+    normalized_column = normalize_name_for_matching(column_name)
+    for sheet_name in available_sheets.keys():
+        if normalize_name_for_matching(sheet_name) == normalized_column:
+            logger.debug(f"Fuzzy matched column '{column_name}' to sheet '{sheet_name}'")
+            return sheet_name
+    
+    # Try prefix matching - check if column_name starts with a sheet name
+    # This handles cases like "Discussion 13: Concurrency + Postterm Practice" 
+    # matching to "Discussion 13: Postterm Practice"
+    for sheet_name in available_sheets.keys():
+        norm_sheet = normalize_name_for_matching(sheet_name)
+        if norm_sheet and normalized_column.startswith(norm_sheet):
+            logger.debug(f"Prefix matched column '{column_name}' to sheet '{sheet_name}'")
+            return sheet_name
+    
+    # Try reverse prefix matching - check if sheet name starts with column name
+    # This handles cases where sheet name has more specific info than column
+    for sheet_name in available_sheets.keys():
+        norm_sheet = normalize_name_for_matching(sheet_name)
+        if norm_sheet and norm_sheet.startswith(normalized_column):
+            logger.debug(f"Reverse prefix matched column '{column_name}' to sheet '{sheet_name}'")
+            return sheet_name
+    
+    # Try similarity matching as last resort
+    # Find the sheet with highest similarity score to the column name
+    best_match = None
+    best_score = 0.6  # Minimum threshold for a "good enough" match
+    
+    for sheet_name in available_sheets.keys():
+        # Calculate similarity between normalized versions
+        norm_sheet = normalize_name_for_matching(sheet_name)
+        # Use SequenceMatcher to calculate similarity ratio
+        similarity = SequenceMatcher(None, normalized_column, norm_sheet).ratio()
+        
+        if similarity > best_score:
+            best_score = similarity
+            best_match = sheet_name
+            logger.debug(f"Similarity match: column '{column_name}' to sheet '{sheet_name}' (score: {similarity:.2f})")
+    
+    if best_match:
+        logger.info(f"Found similarity match for column '{column_name}' to sheet '{best_match}' (score: {best_score:.2f})")
+        return best_match
+    
+    # If no match found, return original and log warning
+    logger.warning(f"No matching sheet found for column '{column_name}'. Available sheets: {list(available_sheets.keys())}")
+    return column_name
+
+
 def retrieve_grades_from_gradescope(gradescope_client, assignment_id = ASSIGNMENT_ID):
     """
     Retrieves grades for one GradeScope assignment in csv form.
@@ -299,6 +628,7 @@ def retrieve_grades_from_gradescope(gradescope_client, assignment_id = ASSIGNMEN
         None
     """
     assignment_scores = str(gradescope_client.download_scores(GRADESCOPE_COURSE_ID, assignment_id)).replace("\\n", "\n")
+
     return assignment_scores
 
 
@@ -347,6 +677,7 @@ def prepare_request_for_one_assignment(sheet_api_instance, gradescope_client, as
     Returns:
         None
     """
+    logger.debug(f"Preparing request for assignment: {assignment_name} (ID: {assignment_id})")
     assignment_scores = retrieve_grades_from_gradescope(gradescope_client = gradescope_client, assignment_id = assignment_id)
     create_sheet_and_request_to_populate_it(sheet_api_instance, assignment_scores, assignment_name)
 
@@ -368,7 +699,8 @@ def get_assignment_id_to_names(gradescope_client):
     #  = { json.loads(assignment)['id'] : json.loads(assignment)['title'] for assignment in info_for_all_assignments }
     for assignment in info_for_all_assignments:
         assignment_as_json = json.loads(assignment)
-        assignment_to_names[str(assignment_as_json["id"])] = assignment_as_json["title"]
+        # Strip whitespace from assignment titles to handle trailing spaces from Gradescope
+        assignment_to_names[str(assignment_as_json["id"])] = assignment_as_json["title"].strip()
     return assignment_to_names
 
 
@@ -382,20 +714,34 @@ def make_batch_request(sheet_api_instance):
         None
     """
     global request_list
+    if not request_list:
+        logger.info("No requests to batch process")
+        return
+    
     rest_batch_request = {
         "requests": request_list
     }
     logger.info(f"Preparing batch request with {len(request_list)} requests")
     batch_request = sheet_api_instance.batchUpdate(spreadsheetId=SPREADSHEET_ID, body=rest_batch_request)
     logger.info("Issuing batch request")
-    make_request(batch_request)
-    logger.info("Completed batch request")
-    request_list = []  # Clear the request list after successful batch update
+    try:
+        make_request(batch_request)
+        logger.info("Completed batch request successfully")
+    except HttpError as err:
+        logger.error(f"HttpError during batch request: {err}")
+        # Don't re-raise, allow the script to continue
+    finally:
+        request_list = []  # Always clear the request list
 
 
 def push_all_grade_data_to_sheets():
     """
     Encapsulates the entire process of retrieving grades from GradeScope and pushing to sheets.
+    This includes:
+    1. Removing inconsistent sheets (sheets in Google Sheets that aren't in Gradescope)
+    2. Creating/updating sub-sheets for all assignments
+    3. Populating the gradebook with formulas
+    4. Updating the index sheet
 
     Returns:
         None
@@ -403,17 +749,32 @@ def push_all_grade_data_to_sheets():
     gradescope_client = initialize_gs_client()
     assignment_id_to_names = get_assignment_id_to_names(gradescope_client)
     sheet_api_instance = create_sheet_api_instance()
-    get_sub_sheet_titles_to_ids(sheet_api_instance)
+    sheet_titles_to_ids = get_sub_sheet_titles_to_ids(sheet_api_instance)
 
-    # For all assignments, create the request for each assignment
+    # STEP 1: Delete inconsistent sheets that are in Google Sheets but not in Gradescope
+    logger.info("Checking for inconsistent sheets to delete...")
+    sheets_to_delete = get_sheets_to_delete(assignment_id_to_names, sheet_titles_to_ids)
+    if sheets_to_delete:
+        delete_sheets(sheet_api_instance, sheets_to_delete)
+        # Refresh the sheet mapping after deletion
+        sheet_titles_to_ids = get_sub_sheet_titles_to_ids(sheet_api_instance, force_refresh=True)
+
+    # STEP 2: Create/update sub-sheets for all assignments from Gradescope
+    logger.info("Creating/updating assignment sub-sheets...")
     for id in assignment_id_to_names:
         prepare_request_for_one_assignment(sheet_api_instance, gradescope_client=gradescope_client,
                                                                assignment_name=assignment_id_to_names[id], assignment_id=id)
 
-    # Populate the gradebook
+    # STEP 3: Populate the gradebook
+    logger.info("Populating gradebook...")
     populate_spreadsheet_gradebook(assignment_id_to_names, sheet_api_instance)
 
-    # Create the batch google sheet request in order to populate the google sheet
+    # STEP 4: Populate the index sheet with all assignments
+    logger.info("Updating index sheet...")
+    populate_index_sheet(sheet_api_instance, assignment_id_to_names)
+
+    # STEP 5: Execute all batched requests
+    logger.info("Executing batch requests...")
     make_batch_request(sheet_api_instance)
 
 
@@ -509,7 +870,46 @@ def populate_spreadsheet_gradebook(assignment_id_to_names, sheet_api_instance):
         if not sorted_assignment_list:
             return
         global subsheet_titles_to_ids
-        grade_dict = {name : formula_list for name in sorted_assignment_list}
+        
+        # Reserved/summary sheets that should not appear as columns in gradebooks
+        reserved_sheets = {
+            "Dashboard",
+            "Labs",
+            "Discussions",
+            "Projects",
+            "Lecture Quizzes",
+            "Midterms",
+            "Postterms",
+            "Index",
+            "Roster",
+            "Pyturis",
+            "PrarieLearn Gradebook"
+        }
+        
+        # Create grade dict with matched sheet names
+        # Filter out reserved/summary sheet names - they should not appear in gradebooks
+        # This ensures that column names in the gradebook match the actual sheet names
+        grade_dict = {}
+        for assignment_name in sorted_assignment_list:
+            # Skip reserved sheets
+            if assignment_name in reserved_sheets:
+                logger.debug(f"Skipping reserved sheet '{assignment_name}' in category '{category}'")
+                continue
+            
+            # Find the actual sheet name that matches this assignment
+            actual_sheet_name = find_matching_sheet_name(assignment_name, subsheet_titles_to_ids)
+            
+            # Skip if the matched sheet is also a reserved sheet
+            if actual_sheet_name in reserved_sheets:
+                logger.debug(f"Skipping reserved sheet '{actual_sheet_name}' (matched from '{assignment_name}') in category '{category}'")
+                continue
+            
+            grade_dict[actual_sheet_name] = formula_list
+        
+        if not grade_dict:
+            logger.warning(f"No valid assignments found for category '{category}' after filtering reserved sheets")
+            return
+        
         grade_df = pd.DataFrame(grade_dict).set_index(sorted_assignment_list[0])
         output = io.StringIO()
         grade_df.to_csv(output)
@@ -519,12 +919,32 @@ def populate_spreadsheet_gradebook(assignment_id_to_names, sheet_api_instance):
         assemble_rest_request_for_assignment(grades_as_csv, sheet_id=subsheet_titles_to_ids[category], rowIndex=0, columnIndex=3)
 
     # Append the preexisting assignments and exams to the new, retrieved assignments and exams
-    sorted_labs = preexisting_lab_columns + sorted_new_labs
-    sorted_discussions = preexisting_discussion_columns + sorted_new_discussions
-    sorted_projects = preexisting_project_columns + sorted_new_projects
-    sorted_lecture_quizzes = preexisting_lecture_quiz_columns + sorted_new_lecture_quizzes
-    sorted_midterms = preexisting_midterm_columns + sorted_new_midterms
-    sorted_postterms = preexisting_postterm_columns + sorted_new_postterms
+    # and re-sort all of them numerically to ensure consistent ordering
+    # This ensures that if an assignment is added later, it will still appear in the correct numerical position
+    def merge_and_sort_assignments(preexisting, new_assignments, extract_number_func):
+        """
+        Merges preexisting and new assignments and sorts them numerically.
+        
+        Args:
+            preexisting (list): List of preexisting assignment names
+            new_assignments (list): List of new assignment names
+            extract_number_func: Function to extract the number from assignment name
+            
+        Returns:
+            list: Combined and numerically sorted list
+        """
+        all_assignments = set(preexisting) | set(new_assignments)
+        return sorted(list(all_assignments), key=extract_number_func)
+    
+    sorted_labs = merge_and_sort_assignments(preexisting_lab_columns, sorted_new_labs, extract_number_from_assignment_title)
+    sorted_discussions = merge_and_sort_assignments(preexisting_discussion_columns, sorted_new_discussions, extract_number_from_assignment_title)
+    sorted_projects = merge_and_sort_assignments(preexisting_project_columns, sorted_new_projects, extract_number_from_assignment_title)
+    sorted_lecture_quizzes = merge_and_sort_assignments(preexisting_lecture_quiz_columns, sorted_new_lecture_quizzes, extract_number_from_assignment_title)
+    sorted_midterms = merge_and_sort_assignments(preexisting_midterm_columns, sorted_new_midterms, extract_number_from_assignment_title)
+    sorted_postterms = merge_and_sort_assignments(preexisting_postterm_columns, sorted_new_postterms, extract_number_from_assignment_title)
+
+    logger.info(f"Sorted assignments - Labs: {len(sorted_labs)}, Discussions: {len(sorted_discussions)}, Projects: {len(sorted_projects)}")
+    logger.info(f"Sorted assignments - Quizzes: {len(sorted_lecture_quizzes)}, Midterms: {len(sorted_midterms)}, Postterms: {len(sorted_postterms)}")
 
     # Create the gradebook for each category
     produce_gradebook_for_category(sorted_labs, "Labs", formula_list)
@@ -554,7 +974,13 @@ def main():
 
     The number of api calls the script makes is constant with respect to the number of assignments. The number of calls = [Number of categories of assignments] + 2
     """
+    global subsheet_titles_to_ids, request_list, assignment_sheets_created
     try:
+        # Reset global variables at the start of each run
+        subsheet_titles_to_ids = None
+        request_list = []
+        assignment_sheets_created = []
+        
         logger.info("Starting grade synchronization process")
         start_time = time.time()
         push_all_grade_data_to_sheets()

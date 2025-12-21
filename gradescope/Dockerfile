@@ -22,4 +22,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 RUN chmod u+x gradescope_to_spreadsheet.py
 
 # Set the entrypoint to run the script
-ENTRYPOINT ["/gradescope/gradescope_to_spreadsheet.py"]
+CMD ["python3", "/gradescope/gradescope_to_spreadsheet.py"]

@@ -125,11 +125,9 @@ def create_sheet_and_request_to_populate_it(sheet_api_instance, assignment_score
     """
     global number_of_retries_needed_to_update_sheet, assignment_sheets_created, subsheet_titles_to_ids
     try:
-        # Ensure assignment_name is stripped to avoid whitespace issues
-        assignment_name = assignment_name.strip()
+        # Keep assignment name exactly as provided (do not strip whitespace)
         sub_sheet_titles_to_ids = get_sub_sheet_titles_to_ids(sheet_api_instance)
         
-        logger.debug(f"Checking if assignment '{assignment_name}' exists in sheet cache")
         if assignment_name not in sub_sheet_titles_to_ids:
             logger.info(f"Sheet '{assignment_name}' does not exist, creating new sheet")
             create_sheet_rest_request = {
@@ -151,7 +149,6 @@ def create_sheet_and_request_to_populate_it(sheet_api_instance, assignment_score
         else:
             sheet_id = sub_sheet_titles_to_ids[assignment_name]
             assignment_sheets_created.append(assignment_name)
-            logger.debug(f"Sheet '{assignment_name}' already exists with ID {sheet_id}")
         assemble_rest_request_for_assignment(assignment_scores, sheet_id)
         logger.info(f"Created sheets request for {assignment_name}")
         number_of_retries_needed_to_update_sheet = 0
@@ -209,6 +206,290 @@ def create_or_get_index_sheet(sheet_api_instance):
     
     logger.info(f"Created index sheet with ID: {index_sheet_id}")
     return index_sheet_id
+
+
+def categorize_assignment(assignment_name):
+    """
+    Categorize an assignment based on its name.
+    
+    Args:
+        assignment_name (str): Name of the assignment
+    
+    Returns:
+        str: Category name
+    """
+    name_lower = assignment_name.lower()
+    
+    # Check for different assignment types
+    if 'lecture' in name_lower or 'quiz' in name_lower:
+        return 'Quest (pre-clobber)'
+    elif 'midterm' in name_lower:
+        return 'Midterm (pre-clobber)'
+    elif 'postterm' in name_lower or 'posterm' in name_lower:
+        return 'Postterm'
+    elif 'project' in name_lower:
+        return 'Projects'
+    elif 'lab' in name_lower:
+        return 'Labs (before dropping lowest two)'
+    elif 'discussion' in name_lower:
+        return 'Discussions'
+    else:
+        return 'Other'
+
+
+def get_max_points_for_assignment(sheet_api_instance, assignment_name):
+    """
+    Get the maximum points for an assignment from its sub-sheet.
+    
+    Args:
+        sheet_api_instance (googleapiclient.discovery.Resource): The sheet api instance
+        assignment_name (str): Name of the assignment sheet
+    
+    Returns:
+        float: Maximum points for the assignment, or 0 if not found
+    """
+    try:
+        # Escape single quotes in sheet name by doubling them
+        # Google Sheets requires single quotes to be escaped as ''
+        escaped_name = assignment_name.replace("'", "''")
+        
+        # Get the assignment sheet data
+        range_name = f"'{escaped_name}'!1:2"  # Get first two rows
+        result = sheet_api_instance.values().get(
+            spreadsheetId=SPREADSHEET_ID,
+            range=range_name
+        ).execute()
+        
+        values = result.get('values', [])
+        if len(values) >= 2:
+            headers = values[0]
+            # Look for "Max Points" or "Total Points" column
+            if 'Max Points' in headers:
+                max_points_idx = headers.index('Max Points')
+                if len(values[1]) > max_points_idx:
+                    try:
+                        return float(values[1][max_points_idx])
+                    except (ValueError, TypeError):
+                        pass
+            # Try to find it in "Total Points"
+            if 'Total Points' in headers:
+                total_points_idx = headers.index('Total Points')
+                if len(values[1]) > total_points_idx:
+                    try:
+                        return float(values[1][total_points_idx])
+                    except (ValueError, TypeError):
+                        pass
+        
+        # If not found, return a default value (could be improved with better heuristics)
+        return 0.0
+    except Exception as e:
+        logger.warning(f"Could not get max points for {assignment_name}: {e}")
+        return 0.0
+
+
+def populate_summary_sheet(sheet_api_instance, assignment_id_to_names):
+    """
+    Creates and populates the Summary sheet with all assignments.
+    Format matches the H Dynamic CM Test Sheet with:
+    - Row 1: Legal Name, Email, Assignment names
+    - Row 2: CATEGORY, CATEGORY, Category labels
+    - Row 3: MAX POINTS, MAX POINTS, Max points for each assignment
+    - Following rows: Student data with formulas pulling from individual sheets
+    
+    Args:
+        sheet_api_instance (googleapiclient.discovery.Resource): The sheet api instance
+        assignment_id_to_names (dict): Dictionary mapping assignment IDs to assignment names
+    
+    Returns:
+        None
+    """
+    global subsheet_titles_to_ids
+    
+    summary_sheet_name = "Summary"
+    
+    # Create or get Summary sheet
+    if summary_sheet_name not in subsheet_titles_to_ids:
+        logger.info(f"Creating {summary_sheet_name} sheet...")
+        create_sheet_rest_request = {
+            "requests": [{
+                "addSheet": {
+                    "properties": {
+                        "title": summary_sheet_name,
+                        "index": 0,  # Place at the beginning
+                        "gridProperties": {
+                            "frozenRowCount": 3,  # Freeze header rows
+                            "frozenColumnCount": 2  # Freeze Name and Email columns
+                        }
+                    }
+                }
+            }]
+        }
+        request = sheet_api_instance.batchUpdate(spreadsheetId=SPREADSHEET_ID, body=create_sheet_rest_request)
+        response = make_request(request)
+        summary_sheet_id = response['replies'][0]['addSheet']['properties']['sheetId']
+        subsheet_titles_to_ids[summary_sheet_name] = summary_sheet_id
+        logger.info(f"Created {summary_sheet_name} sheet with ID: {summary_sheet_id}")
+    else:
+        summary_sheet_id = subsheet_titles_to_ids[summary_sheet_name]
+        logger.info(f"Using existing {summary_sheet_name} sheet with ID: {summary_sheet_id}")
+        # Move to index 0 if it already exists
+        move_request = {
+            "updateSheetProperties": {
+                "properties": {
+                    "sheetId": summary_sheet_id,
+                    "index": 0
+                },
+                "fields": "index"
+            }
+        }
+        store_request(move_request)
+    
+    # Filter non-optional assignments
+    is_not_optional = lambda assignment: not "optional" in assignment.lower()
+    assignment_names = [name for name in assignment_id_to_names.values() if is_not_optional(name)]
+    
+    # Categorize and sort assignments by category
+    def extract_number_from_assignment_title(assignment):
+        numbers_present = re.findall(r"\d+", assignment)
+        return int(numbers_present[0]) if numbers_present else 0
+    
+    # Group assignments by category
+    assignments_by_category = {
+        'Quest (pre-clobber)': [],
+        'Midterm (pre-clobber)': [],
+        'Postterm': [],
+        'Projects': [],
+        'Labs (before dropping lowest two)': [],
+        'Discussions': []
+    }
+    
+    for assignment_name in assignment_names:
+        category = categorize_assignment(assignment_name)
+        if category in assignments_by_category:
+            assignments_by_category[category].append(assignment_name)
+    
+    # Sort each category
+    for category in assignments_by_category:
+        assignments_by_category[category].sort(key=extract_number_from_assignment_title)
+    
+    # Build ordered assignment list (Quest -> Midterm -> Postterm -> Projects -> Labs)
+    ordered_assignments = []
+    for category in ['Quest (pre-clobber)', 'Midterm (pre-clobber)', 'Postterm', 'Projects', 'Labs (before dropping lowest two)']:
+        ordered_assignments.extend(assignments_by_category[category])
+    
+    logger.info(f"Summary sheet will contain {len(ordered_assignments)} assignments")
+    
+    # Calculate required columns: 2 fixed columns (Name, Email) + assignments
+    required_columns = 2 + len(ordered_assignments)
+    required_rows = 3 + NUMBER_OF_STUDENTS  # 3 header rows + student rows
+    
+    # Ensure the sheet has enough columns and rows
+    logger.info(f"Ensuring Summary sheet has {required_columns} columns and {required_rows} rows")
+    resize_request = {
+        "updateSheetProperties": {
+            "properties": {
+                "sheetId": summary_sheet_id,
+                "gridProperties": {
+                    "rowCount": required_rows,
+                    "columnCount": required_columns
+                }
+            },
+            "fields": "gridProperties.rowCount,gridProperties.columnCount"
+        }
+    }
+    store_request(resize_request)
+    
+    # Build the three header rows
+    rows = []
+    
+    # Row 1: Assignment names
+    row1_cells = [
+        {"userEnteredValue": {"stringValue": "Legal Name"}},
+        {"userEnteredValue": {"stringValue": "Email"}}
+    ]
+    for assignment_name in ordered_assignments:
+        row1_cells.append({"userEnteredValue": {"stringValue": assignment_name}})
+    rows.append({"values": row1_cells})
+    
+    # Row 2: Category labels
+    row2_cells = [
+        {"userEnteredValue": {"stringValue": "CATEGORY"}},
+        {"userEnteredValue": {"stringValue": "CATEGORY"}}
+    ]
+    for assignment_name in ordered_assignments:
+        category = categorize_assignment(assignment_name)
+        row2_cells.append({"userEnteredValue": {"stringValue": category}})
+    rows.append({"values": row2_cells})
+    
+    # Row 3: Max points
+    row3_cells = [
+        {"userEnteredValue": {"stringValue": "MAX POINTS"}},
+        {"userEnteredValue": {"stringValue": "MAX POINTS"}}
+    ]
+    for assignment_name in ordered_assignments:
+        max_points = get_max_points_for_assignment(sheet_api_instance, assignment_name)
+        row3_cells.append({"userEnteredValue": {"numberValue": max_points}})
+    rows.append({"values": row3_cells})
+    
+    # Verify all header rows have the same column count
+    expected_cols = 2 + len(ordered_assignments)
+    logger.info(f"Header rows: Row1={len(row1_cells)} cols, Row2={len(row2_cells)} cols, Row3={len(row3_cells)} cols, Expected={expected_cols}")
+    
+    # Row 4+: Student data with formulas
+    # Use XLOOKUP formulas to pull data from individual assignment sheets
+    for student_row_idx in range(NUMBER_OF_STUDENTS):
+        student_cells = [
+            # Legal Name from Labs sheet
+            {"userEnteredValue": {"formulaValue": f"=IFERROR(Labs!A{student_row_idx+2},\"\")"}},
+            # Email from Labs sheet  
+            {"userEnteredValue": {"formulaValue": f"=IFERROR(Labs!B{student_row_idx+2},\"\")"}}  
+        ]
+        
+        # For each assignment, create XLOOKUP formula
+        for assignment_name in ordered_assignments:
+            # Escape single quotes in sheet name for formula
+            escaped_name = assignment_name.replace("'", "''")
+            # Formula: =XLOOKUP($B5, '{SheetName}'!$C:$C, '{SheetName}'!$E:$E, "")
+            # This looks up the email in column B of Summary, finds it in column C (Email) of the assignment sheet,
+            # and returns the corresponding grade from column E (Score column)
+            # Use row number starting from 4 (after 3 header rows)
+            formula = f"=IFERROR(XLOOKUP($B{student_row_idx+4},'{escaped_name}'!$C:$C,'{escaped_name}'!$E:$E),\"\")"
+            student_cells.append({"userEnteredValue": {"formulaValue": formula}})
+        
+        rows.append({"values": student_cells})
+        
+        # Verify first student row column count (for debugging)
+        if student_row_idx == 0:
+            logger.info(f"First student row has {len(student_cells)} columns, expected {expected_cols}")
+    
+    # Verify all rows have consistent column counts before creating the request
+    all_cols_consistent = True
+    for idx, row in enumerate(rows):
+        if len(row["values"]) != expected_cols:
+            logger.error(f"Row {idx} has {len(row['values'])} columns, expected {expected_cols}")
+            all_cols_consistent = False
+    
+    if not all_cols_consistent:
+        logger.error("Column count mismatch detected! Aborting Summary sheet update.")
+        return
+    
+    # Create the update request
+    update_request = {
+        "updateCells": {
+            "range": {
+                "sheetId": summary_sheet_id,
+                "startRowIndex": 0,
+                "startColumnIndex": 0,
+                "endRowIndex": len(rows),
+                "endColumnIndex": expected_cols
+            },
+            "rows": rows,
+            "fields": "userEnteredValue"
+        }
+    }
+    
+    store_request(update_request)
+    logger.info(f"Created summary sheet with {len(ordered_assignments)} assignment columns and {NUMBER_OF_STUDENTS} student rows")
 
 
 def populate_index_sheet(sheet_api_instance, assignment_id_to_names):
@@ -275,7 +556,9 @@ def populate_index_sheet(sheet_api_instance, assignment_id_to_names):
             "range": {
                 "sheetId": index_sheet_id,
                 "startRowIndex": 0,
-                "startColumnIndex": 0
+                "startColumnIndex": 0,
+                "endRowIndex": len(rows),
+                "endColumnIndex": 3  # We have 3 columns: Assignment Name, Link to Sheet, Status
             },
             "rows": rows,
             "fields": "userEnteredValue"
@@ -572,7 +855,6 @@ def find_matching_sheet_name(column_name, available_sheets):
     normalized_column = normalize_name_for_matching(column_name)
     for sheet_name in available_sheets.keys():
         if normalize_name_for_matching(sheet_name) == normalized_column:
-            logger.debug(f"Fuzzy matched column '{column_name}' to sheet '{sheet_name}'")
             return sheet_name
     
     # Try prefix matching - check if column_name starts with a sheet name
@@ -581,7 +863,6 @@ def find_matching_sheet_name(column_name, available_sheets):
     for sheet_name in available_sheets.keys():
         norm_sheet = normalize_name_for_matching(sheet_name)
         if norm_sheet and normalized_column.startswith(norm_sheet):
-            logger.debug(f"Prefix matched column '{column_name}' to sheet '{sheet_name}'")
             return sheet_name
     
     # Try reverse prefix matching - check if sheet name starts with column name
@@ -589,7 +870,6 @@ def find_matching_sheet_name(column_name, available_sheets):
     for sheet_name in available_sheets.keys():
         norm_sheet = normalize_name_for_matching(sheet_name)
         if norm_sheet and norm_sheet.startswith(normalized_column):
-            logger.debug(f"Reverse prefix matched column '{column_name}' to sheet '{sheet_name}'")
             return sheet_name
     
     # Try similarity matching as last resort
@@ -606,7 +886,6 @@ def find_matching_sheet_name(column_name, available_sheets):
         if similarity > best_score:
             best_score = similarity
             best_match = sheet_name
-            logger.debug(f"Similarity match: column '{column_name}' to sheet '{sheet_name}' (score: {similarity:.2f})")
     
     if best_match:
         logger.info(f"Found similarity match for column '{column_name}' to sheet '{best_match}' (score: {best_score:.2f})")
@@ -677,7 +956,6 @@ def prepare_request_for_one_assignment(sheet_api_instance, gradescope_client, as
     Returns:
         None
     """
-    logger.debug(f"Preparing request for assignment: {assignment_name} (ID: {assignment_id})")
     assignment_scores = retrieve_grades_from_gradescope(gradescope_client = gradescope_client, assignment_id = assignment_id)
     create_sheet_and_request_to_populate_it(sheet_api_instance, assignment_scores, assignment_name)
 
@@ -699,8 +977,8 @@ def get_assignment_id_to_names(gradescope_client):
     #  = { json.loads(assignment)['id'] : json.loads(assignment)['title'] for assignment in info_for_all_assignments }
     for assignment in info_for_all_assignments:
         assignment_as_json = json.loads(assignment)
-        # Strip whitespace from assignment titles to handle trailing spaces from Gradescope
-        assignment_to_names[str(assignment_as_json["id"])] = assignment_as_json["title"].strip()
+        # Keep assignment titles exactly as they appear in Gradescope (including trailing spaces)
+        assignment_to_names[str(assignment_as_json["id"])] = assignment_as_json["title"]
     return assignment_to_names
 
 
@@ -717,6 +995,28 @@ def make_batch_request(sheet_api_instance):
     if not request_list:
         logger.info("No requests to batch process")
         return
+    
+    # Debug: Log information about updateCells requests
+    for idx, req in enumerate(request_list):
+        if "updateCells" in req:
+            update_cells = req["updateCells"]
+            range_info = update_cells.get("range", {})
+            rows = update_cells.get("rows", [])
+            
+            # Check row column counts
+            if rows:
+                col_counts = [len(row.get("values", [])) for row in rows]
+                max_cols = max(col_counts) if col_counts else 0
+                end_col = range_info.get("endColumnIndex")
+                start_col = range_info.get("startColumnIndex", 0)
+                requested_cols = end_col - start_col if end_col is not None else None
+                
+                if requested_cols is not None and max_cols != requested_cols:
+                    logger.warning(f"Request [{idx}] updateCells potential column mismatch:")
+                    logger.warning(f"  startColumnIndex: {start_col}, endColumnIndex: {end_col}")
+                    logger.warning(f"  Requested columns: {requested_cols}, Max in rows: {max_cols}")
+                    if len(set(col_counts)) > 1:
+                        logger.warning(f"  Inconsistent row widths: {set(col_counts)}")
     
     rest_batch_request = {
         "requests": request_list
@@ -773,7 +1073,11 @@ def push_all_grade_data_to_sheets():
     logger.info("Updating index sheet...")
     populate_index_sheet(sheet_api_instance, assignment_id_to_names)
 
-    # STEP 5: Execute all batched requests
+    # STEP 5: Populate the summary sheet
+    logger.info("Updating summary sheet...")
+    populate_summary_sheet(sheet_api_instance, assignment_id_to_names)
+
+    # STEP 6: Execute all batched requests
     logger.info("Executing batch requests...")
     make_batch_request(sheet_api_instance)
 
@@ -893,7 +1197,6 @@ def populate_spreadsheet_gradebook(assignment_id_to_names, sheet_api_instance):
         for assignment_name in sorted_assignment_list:
             # Skip reserved sheets
             if assignment_name in reserved_sheets:
-                logger.debug(f"Skipping reserved sheet '{assignment_name}' in category '{category}'")
                 continue
             
             # Find the actual sheet name that matches this assignment
@@ -901,7 +1204,6 @@ def populate_spreadsheet_gradebook(assignment_id_to_names, sheet_api_instance):
             
             # Skip if the matched sheet is also a reserved sheet
             if actual_sheet_name in reserved_sheets:
-                logger.debug(f"Skipping reserved sheet '{actual_sheet_name}' (matched from '{assignment_name}') in category '{category}'")
                 continue
             
             grade_dict[actual_sheet_name] = formula_list

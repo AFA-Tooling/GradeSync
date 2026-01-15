@@ -21,13 +21,16 @@ import backoff_utils
 import requests
 from datetime import datetime
 from difflib import SequenceMatcher
+import sys
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+from api.config_loader import load_config, DEFAULT_SCOPES
 
 load_dotenv()
 GRADESCOPE_EMAIL = os.getenv("GRADESCOPE_EMAIL")
 GRADESCOPE_PASSWORD = os.getenv("GRADESCOPE_PASSWORD")
+USE_DB_AS_PRIMARY = os.getenv("USE_DB_AS_PRIMARY", "true").lower() in ("1", "true", "yes")
 
 import logging
-import sys
 
 # Configure logging to output to both file and console
 logging.basicConfig(
@@ -42,20 +45,26 @@ logger = logging.getLogger(__name__)
 logger.info("Starting the gradescope_to_spreadsheet script.")
 
 # Load JSON variables
-# Note: this class JSON name can be made customizable, inputted through a front end user interface for example
-# But the default is cs10_fall2024.json
-class_json_name = 'cs10_fa25.json'
-config_path = os.path.join(os.path.dirname(__file__), 'config/', class_json_name)
-with open(config_path, "r") as config_file:
-    config = json.load(config_file)
+class_json_name = 'courses.json'
+config_path = os.path.join(os.path.dirname(__file__), '..', 'config', class_json_name)
+config = load_config(config_path)
 
 # IDs to link files
-GRADESCOPE_COURSE_ID = config["GRADESCOPE_COURSE_ID"]
-SCOPES = config["SCOPES"]
-SPREADSHEET_ID = config["SPREADSHEET_ID"]
+GRADESCOPE_COURSE_ID = config["gradescope_course_id"]
+SCOPES = config.get("scopes", DEFAULT_SCOPES)
+SPREADSHEET_ID = config["spreadsheet_id"]
 
-# Course metadata
-NUMBER_OF_STUDENTS = config["NUMBER_OF_STUDENTS"]
+
+def get_number_of_students():
+    """Get dynamic student count from database."""
+    try:
+        from api import summary_from_db
+        summary_data = summary_from_db.get_summary_data_from_db(str(GRADESCOPE_COURSE_ID))
+        return len(summary_data.get('students', []))
+    except Exception as e:
+        logger.warning(f"Failed to get student count from DB: {e}, using default 200")
+        return 200  # Fallback default
+
 
 # These constants are deprecated. 
 # The following explanation is for what their purpose was: 
@@ -114,6 +123,7 @@ client = gspread.authorize(credentials)
 def create_sheet_and_request_to_populate_it(sheet_api_instance, assignment_scores, assignment_name = ASSIGNMENT_NAME):
     """
     Creates a sheet and adds the request that will populate the sheet to request_list.
+    When USE_DB_AS_PRIMARY is True, skips sheet creation (data is in DB instead).
 
     Args:
         sheet_api_instance (googleapiclient.discovery.Resource): The sheet api instance
@@ -124,6 +134,12 @@ def create_sheet_and_request_to_populate_it(sheet_api_instance, assignment_score
         None: This function does not return a value.
     """
     global number_of_retries_needed_to_update_sheet, assignment_sheets_created, subsheet_titles_to_ids
+    
+    # Skip per-assignment sheet creation when using DB as primary storage
+    if USE_DB_AS_PRIMARY:
+        logger.info(f"Skipping sheet creation for '{assignment_name}' (USE_DB_AS_PRIMARY=true)")
+        return
+    
     try:
         # Keep assignment name exactly as provided (do not strip whitespace)
         sub_sheet_titles_to_ids = get_sub_sheet_titles_to_ids(sheet_api_instance)
@@ -287,14 +303,141 @@ def get_max_points_for_assignment(sheet_api_instance, assignment_name):
         return 0.0
 
 
+def populate_summary_sheet_from_db(sheet_api_instance, assignment_id_to_names):
+    """
+    Creates and populates the Summary sheet from DB data (no formulas).
+    
+    Args:
+        sheet_api_instance (googleapiclient.discovery.Resource): The sheet api instance
+        assignment_id_to_names (dict): Dictionary mapping assignment IDs to assignment names
+    """
+    global subsheet_titles_to_ids
+    from api import summary_from_db
+    
+    summary_sheet_name = "Summary"
+    
+    # Get or create Summary sheet
+    if summary_sheet_name not in subsheet_titles_to_ids:
+        logger.info(f"Creating {summary_sheet_name} sheet...")
+        create_sheet_rest_request = {
+            "requests": [{
+                "addSheet": {
+                    "properties": {
+                        "title": summary_sheet_name,
+                        "index": 0,
+                        "gridProperties": {
+                            "frozenRowCount": 3,
+                            "frozenColumnCount": 2
+                        }
+                    }
+                }
+            }]
+        }
+        request = sheet_api_instance.batchUpdate(spreadsheetId=SPREADSHEET_ID, body=create_sheet_rest_request)
+        response = make_request(request)
+        summary_sheet_id = response['replies'][0]['addSheet']['properties']['sheetId']
+        subsheet_titles_to_ids[summary_sheet_name] = summary_sheet_id
+    else:
+        summary_sheet_id = subsheet_titles_to_ids[summary_sheet_name]
+    
+    # Get data from DB
+    summary_data = summary_from_db.get_summary_data_from_db(str(GRADESCOPE_COURSE_ID))
+    assignment_names = summary_data["assignments"]
+    students = summary_data["students"]
+    
+    logger.info(f"Building Summary from DB: {len(assignment_names)} assignments, {len(students)} students")
+    
+    # Build header rows
+    rows = []
+    
+    # Row 1: Assignment names
+    row1_cells = [
+        {"userEnteredValue": {"stringValue": "Legal Name"}},
+        {"userEnteredValue": {"stringValue": "Email"}}
+    ]
+    for assignment_name in assignment_names:
+        row1_cells.append({"userEnteredValue": {"stringValue": assignment_name}})
+    rows.append({"values": row1_cells})
+    
+    # Row 2: Category labels
+    row2_cells = [
+        {"userEnteredValue": {"stringValue": "CATEGORY"}},
+        {"userEnteredValue": {"stringValue": "CATEGORY"}}
+    ]
+    for assignment_name in assignment_names:
+        category = summary_from_db.categorize_assignment_for_summary(assignment_name)
+        row2_cells.append({"userEnteredValue": {"stringValue": category}})
+    rows.append({"values": row2_cells})
+    
+    # Row 3: Max points
+    row3_cells = [
+        {"userEnteredValue": {"stringValue": "MAX POINTS"}},
+        {"userEnteredValue": {"stringValue": "MAX POINTS"}}
+    ]
+    for assignment_name in assignment_names:
+        max_points = summary_from_db.get_max_points_from_db(str(GRADESCOPE_COURSE_ID), assignment_name)
+        row3_cells.append({"userEnteredValue": {"numberValue": max_points}})
+    rows.append({"values": row3_cells})
+    
+    # Student rows with actual values from DB
+    for student in students:
+        student_cells = [
+            {"userEnteredValue": {"stringValue": student["legal_name"]}},
+            {"userEnteredValue": {"stringValue": student["email"]}}
+        ]
+        for assignment_name in assignment_names:
+            score = student["scores"].get(assignment_name, "")
+            if isinstance(score, (int, float)):
+                student_cells.append({"userEnteredValue": {"numberValue": float(score)}})
+            else:
+                student_cells.append({"userEnteredValue": {"stringValue": str(score)}})
+        rows.append({"values": student_cells})
+    
+    # Ensure sheet has enough rows/columns
+    required_columns = 2 + len(assignment_names)
+    required_rows = 3 + len(students)
+    
+    resize_request = {
+        "updateSheetProperties": {
+            "properties": {
+                "sheetId": summary_sheet_id,
+                "gridProperties": {
+                    "rowCount": required_rows,
+                    "columnCount": required_columns
+                }
+            },
+            "fields": "gridProperties.rowCount,gridProperties.columnCount"
+        }
+    }
+    store_request(resize_request)
+    
+    # Create update request
+    update_request = {
+        "updateCells": {
+            "range": {
+                "sheetId": summary_sheet_id,
+                "startRowIndex": 0,
+                "startColumnIndex": 0,
+                "endRowIndex": len(rows),
+                "endColumnIndex": required_columns
+            },
+            "rows": rows,
+            "fields": "userEnteredValue"
+        }
+    }
+    store_request(update_request)
+    logger.info(f"Created DB-backed Summary with {len(assignment_names)} assignments and {len(students)} students")
+
+
 def populate_summary_sheet(sheet_api_instance, assignment_id_to_names):
     """
     Creates and populates the Summary sheet with all assignments.
+    When USE_DB_AS_PRIMARY is True, reads data from DB instead of using XLOOKUP formulas.
     Format matches the H Dynamic CM Test Sheet with:
     - Row 1: Legal Name, Email, Assignment names
     - Row 2: CATEGORY, CATEGORY, Category labels
     - Row 3: MAX POINTS, MAX POINTS, Max points for each assignment
-    - Following rows: Student data with formulas pulling from individual sheets
+    - Following rows: Student data (formulas if Sheets-only, values if DB-backed)
     
     Args:
         sheet_api_instance (googleapiclient.discovery.Resource): The sheet api instance
@@ -304,6 +447,11 @@ def populate_summary_sheet(sheet_api_instance, assignment_id_to_names):
         None
     """
     global subsheet_titles_to_ids
+    
+    # If using DB, delegate to DB-backed summary generation
+    if USE_DB_AS_PRIMARY:
+        populate_summary_sheet_from_db(sheet_api_instance, assignment_id_to_names)
+        return
     
     summary_sheet_name = "Summary"
     
@@ -381,7 +529,8 @@ def populate_summary_sheet(sheet_api_instance, assignment_id_to_names):
     
     # Calculate required columns: 2 fixed columns (Name, Email) + assignments
     required_columns = 2 + len(ordered_assignments)
-    required_rows = 3 + NUMBER_OF_STUDENTS  # 3 header rows + student rows
+    number_of_students = get_number_of_students()
+    required_rows = 3 + number_of_students  # 3 header rows + student rows
     
     # Ensure the sheet has enough columns and rows
     logger.info(f"Ensuring Summary sheet has {required_columns} columns and {required_rows} rows")
@@ -437,7 +586,7 @@ def populate_summary_sheet(sheet_api_instance, assignment_id_to_names):
     
     # Row 4+: Student data with formulas
     # Use XLOOKUP formulas to pull data from individual assignment sheets
-    for student_row_idx in range(NUMBER_OF_STUDENTS):
+    for student_row_idx in range(number_of_students):
         student_cells = [
             # Legal Name from Labs sheet
             {"userEnteredValue": {"formulaValue": f"=IFERROR(Labs!A{student_row_idx+2},\"\")"}},
@@ -489,7 +638,7 @@ def populate_summary_sheet(sheet_api_instance, assignment_id_to_names):
     }
     
     store_request(update_request)
-    logger.info(f"Created summary sheet with {len(ordered_assignments)} assignment columns and {NUMBER_OF_STUDENTS} student rows")
+    logger.info(f"Created summary sheet with {len(ordered_assignments)} assignment columns and {number_of_students} student rows")
 
 
 def populate_index_sheet(sheet_api_instance, assignment_id_to_names):
@@ -896,17 +1045,58 @@ def find_matching_sheet_name(column_name, available_sheets):
     return column_name
 
 
-def retrieve_grades_from_gradescope(gradescope_client, assignment_id = ASSIGNMENT_ID):
+def retrieve_grades_from_gradescope(gradescope_client, assignment_id = ASSIGNMENT_ID, assignment_name=None):
     """
-    Retrieves grades for one GradeScope assignment in csv form.
+    Retrieves grades for one GradeScope assignment in csv form and persists raw CSV locally.
 
     Args:
-        gradescope_client (String): One of the following assignment types: ["Labs", "Discussions", "Projects", "Midterms", "Postterms"]
-        assignment_id (String): The Gradescope assignment ID of the assignment for which grades are to be retrieved.
+        gradescope_client (GradescopeClient): Gradescope API client
+        assignment_id (str): The Gradescope assignment ID
+        assignment_name (str): Optional human-readable assignment title
     Returns:
-        None
+        str: CSV contents as a string
     """
-    assignment_scores = str(gradescope_client.download_scores(GRADESCOPE_COURSE_ID, assignment_id)).replace("\\n", "\n")
+    assignment_scores_bytes = gradescope_client.download_scores(GRADESCOPE_COURSE_ID, assignment_id)
+    logger.debug(f"download_scores returned type: {type(assignment_scores_bytes)}")
+    logger.debug(f"First 100 chars: {str(assignment_scores_bytes)[:100]}")
+    assignment_scores = assignment_scores_bytes.decode('utf-8') if isinstance(assignment_scores_bytes, bytes) else assignment_scores_bytes
+    logger.debug(f"After decode, type: {type(assignment_scores)}")
+    logger.debug(f"First 100 chars after decode: {assignment_scores[:100]}")
+
+    # Persist raw CSV to disk for audit/backfill
+    try:
+        csv_dir = os.path.join(os.path.dirname(__file__), 'data', 'gradescope_csvs', str(GRADESCOPE_COURSE_ID))
+        os.makedirs(csv_dir, exist_ok=True)
+        ts = datetime.now().strftime('%Y%m%dT%H%M%S')
+        safe_name = (assignment_name or str(assignment_id)).replace('/', '_').replace(' ', '_')
+        filename = f'assignment_{assignment_id}_{safe_name}_{ts}.csv'
+        filepath = os.path.join(csv_dir, filename)
+        with open(filepath, 'w', encoding='utf-8') as fh:
+            fh.write(assignment_scores)
+        logger.info(f"Saved assignment CSV to {filepath}")
+
+        # Ingest into DB (if configured)
+        try:
+            from api import ingest
+            use_db = os.getenv('USE_DB_AS_PRIMARY', 'true').lower() in ('1', 'true', 'yes')
+            if use_db:
+                ingest.write_assignment_scores_to_db(
+                    str(GRADESCOPE_COURSE_ID), 
+                    str(assignment_id), 
+                    assignment_name or filename, 
+                    filepath,
+                    spreadsheet_id=SPREADSHEET_ID,
+                    course_name=config.get('course_name', f"CS10 {config.get('semester', '')}").strip(),
+                    department=config.get('department'),
+                    course_number=config.get('course_number'),
+                    semester=config.get('semester'),
+                    year=config.get('year'),
+                    instructor=config.get('staff', {}).get('instructor')
+                )
+        except Exception as e:
+            logger.exception(f"Failed to ingest CSV into DB for assignment {assignment_id}: {e}")
+    except Exception as e:
+        logger.exception(f"Failed saving CSV for assignment {assignment_id}: {e}")
 
     return assignment_scores
 
@@ -956,7 +1146,7 @@ def prepare_request_for_one_assignment(sheet_api_instance, gradescope_client, as
     Returns:
         None
     """
-    assignment_scores = retrieve_grades_from_gradescope(gradescope_client = gradescope_client, assignment_id = assignment_id)
+    assignment_scores = retrieve_grades_from_gradescope(gradescope_client = gradescope_client, assignment_id = assignment_id, assignment_name=assignment_name)
     create_sheet_and_request_to_populate_it(sheet_api_instance, assignment_scores, assignment_name)
 
 
@@ -1065,9 +1255,10 @@ def push_all_grade_data_to_sheets():
         prepare_request_for_one_assignment(sheet_api_instance, gradescope_client=gradescope_client,
                                                                assignment_name=assignment_id_to_names[id], assignment_id=id)
 
-    # STEP 3: Populate the gradebook
-    logger.info("Populating gradebook...")
-    populate_spreadsheet_gradebook(assignment_id_to_names, sheet_api_instance)
+    # STEP 3: Populate the gradebook (only in Sheets-only mode)
+    if not USE_DB_AS_PRIMARY:
+        logger.info("Populating gradebook...")
+        populate_spreadsheet_gradebook(assignment_id_to_names, sheet_api_instance)
 
     # STEP 4: Populate the index sheet with all assignments
     logger.info("Updating index sheet...")
@@ -1155,9 +1346,10 @@ def populate_spreadsheet_gradebook(assignment_id_to_names, sheet_api_instance):
     sorted_new_postterms = sorted(new_postterms, key=extract_number_from_assignment_title)
 
     # The following formulas are used to retrieve grades from the gradebook.
-    formula_list = [GRADE_RETRIEVAL_SPREADSHEET_FORMULA] * NUMBER_OF_STUDENTS
+    number_of_students = get_number_of_students()
+    formula_list = [GRADE_RETRIEVAL_SPREADSHEET_FORMULA] * number_of_students
     # discussion_formula_list = [DISCUSSION_COMPLETION_INDICATOR_FORMULA]
-    discussion_formula_list = [DISCUSSION_COMPLETION_INDICATOR_FORMULA] * NUMBER_OF_STUDENTS
+    discussion_formula_list = [DISCUSSION_COMPLETION_INDICATOR_FORMULA] * number_of_students
 
     def produce_gradebook_for_category(sorted_assignment_list, category, formula_list):
         """

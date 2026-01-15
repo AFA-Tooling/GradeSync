@@ -267,3 +267,73 @@ def write_assignment_scores_to_db(course_gradescope_id: str, assignment_id: str,
         raise
     finally:
         session.close()
+
+
+def save_summary_sheet_to_db(course_gradescope_id: str, summary_data: dict):
+    """
+    Save summary sheet data to database.
+    
+    Args:
+        course_gradescope_id: Gradescope course ID
+        summary_data: Dictionary containing:
+            - assignments: list of Assignment objects
+            - students: list of Student objects
+            - submissions: dict mapping (assignment_id, student_id) to Submission
+    
+    This function stores the computed summary in the summary_sheets table,
+    making it efficient to retrieve summary data without recomputing.
+    """
+    from .models import SummarySheet
+    
+    session = SessionLocal()
+    try:
+        # Get course
+        course = session.query(Course).filter(
+            Course.gradescope_course_id == course_gradescope_id
+        ).first()
+        
+        if not course:
+            logger.error(f"Course {course_gradescope_id} not found in database")
+            return
+        
+        assignments = summary_data.get("assignments", [])
+        students = summary_data.get("students", [])
+        submissions = summary_data.get("submissions", {})
+        
+        logger.info(f"Saving summary sheet to database for course {course_gradescope_id}")
+        logger.info(f"Processing {len(students)} students and {len(assignments)} assignments")
+        
+        # Store each student-assignment score pair
+        for student in students:
+            for assignment in assignments:
+                sub = submissions.get((assignment.id, student.id))
+                score = float(sub.total_score) if sub and sub.total_score is not None else None
+                
+                # Check if record exists
+                existing = session.query(SummarySheet).filter(
+                    SummarySheet.course_id == course.id,
+                    SummarySheet.student_id == student.id,
+                    SummarySheet.assignment_id == assignment.id
+                ).first()
+                
+                if existing:
+                    existing.score = score
+                else:
+                    new_summary = SummarySheet(
+                        course_id=course.id,
+                        student_id=student.id,
+                        assignment_id=assignment.id,
+                        score=score
+                    )
+                    session.add(new_summary)
+        
+        session.commit()
+        logger.info(f"Successfully saved summary sheet to database for course {course_gradescope_id}")
+        
+    except Exception as e:
+        session.rollback()
+        logger.exception(f"Failed to save summary sheet to database: {e}")
+        raise
+    finally:
+        session.close()
+

@@ -1271,6 +1271,59 @@ def push_all_grade_data_to_sheets():
     # STEP 6: Execute all batched requests
     logger.info("Executing batch requests...")
     make_batch_request(sheet_api_instance)
+    
+    # STEP 7: Update summary_sheets table in database (if using DB)
+    if USE_DB_AS_PRIMARY:
+        logger.info("Updating summary_sheets table in database...")
+        try:
+            from api.db import SessionLocal
+            from api.models import Course, Assignment, Student, Submission
+            from api.ingest import save_summary_sheet_to_db
+            
+            session = SessionLocal()
+            try:
+                # Get course data
+                course = session.query(Course).filter(
+                    Course.gradescope_course_id == str(GRADESCOPE_COURSE_ID)
+                ).first()
+                
+                if course:
+                    # Get all data needed for summary sheet
+                    assignments = session.query(Assignment).filter(
+                        Assignment.course_id == course.id
+                    ).all()
+                    
+                    students = session.query(Student).all()
+                    
+                    submissions = session.query(Submission).join(Assignment).filter(
+                        Assignment.course_id == course.id
+                    ).all()
+                    
+                    submission_lookup = {
+                        (sub.assignment_id, sub.student_id): sub 
+                        for sub in submissions
+                    }
+                    
+                    course_data = {
+                        "course": course,
+                        "assignments": assignments,
+                        "students": students,
+                        "submissions": submission_lookup
+                    }
+                    
+                    # Save to summary_sheets table
+                    save_summary_sheet_to_db(str(GRADESCOPE_COURSE_ID), course_data)
+                    logger.info("✅ Summary sheet database updated successfully")
+                else:
+                    logger.warning(f"Course {GRADESCOPE_COURSE_ID} not found in database")
+                    
+            finally:
+                session.close()
+                
+        except Exception as e:
+            logger.error(f"Failed to update summary_sheets table: {e}")
+            # Don't fail the entire process if summary update fails
+            logger.exception("Summary sheet update error details:")
 
 
 def populate_spreadsheet_gradebook(assignment_id_to_names, sheet_api_instance):

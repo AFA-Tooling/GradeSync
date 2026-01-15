@@ -28,6 +28,7 @@ import json
 from api.config_loader import load_config, list_courses, DEFAULT_SCOPES
 from api.db import SessionLocal
 from api.models import Course, Assignment, Student, Submission
+from api.ingest import save_summary_sheet_to_db
 from sqlalchemy import func
 
 load_dotenv()
@@ -459,13 +460,21 @@ def generate_all_sheets_with_config(config):
     # 1. Generate main summary sheet
     generate_summary_sheet(service, spreadsheet_id, course_data)
     
-    # 2. Group assignments by category
+    # 2. Save summary sheet data to database
+    logger.info("Saving summary sheet to database...")
+    try:
+        save_summary_sheet_to_db(course_gradescope_id, course_data)
+        logger.info("✅ Summary sheet saved to database")
+    except Exception as e:
+        logger.error(f"❌ Failed to save summary sheet to database: {e}")
+    
+    # 3. Group assignments by category
     assignments_by_category = defaultdict(list)
     for assignment in course_data["assignments"]:
         category = categorize_assignment(assignment.title)
         assignments_by_category[category].append(assignment)
     
-    # 3. Generate category sheets
+    # 4. Generate category sheets
     for category, category_assignments in assignments_by_category.items():
         if category_assignments:
             generate_category_sheet(service, spreadsheet_id, category, 

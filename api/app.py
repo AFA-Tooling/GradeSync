@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.responses import JSONResponse, PlainTextResponse
 from gradescopeClient import GradescopeClient
 from utils import *
@@ -7,6 +7,15 @@ from google.oauth2.service_account import Credentials
 from backoff_utils import strategies
 from backoff_utils import backoff
 import requests
+from typing import Optional, List
+import logging
+
+# Import unified configuration and services
+from config_manager import get_config_manager, list_available_courses
+from grade_sync_service import sync_course_grades
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
@@ -31,7 +40,259 @@ PL_SERVER = "https://us.prairielearn.com/pl/api/v1"
 
 @app.get("/")
 def read_root():
-    return {"message": "Welcome to the GradeSync API"}
+    return {
+        "message": "Welcome to the GradeSync API",
+        "version": "2.0",
+        "endpoints": {
+            "courses": "/api/courses - List all configured courses",
+            "sync": "/api/sync/{course_id} - Sync all grades for a course",
+            "sync_gradescope": "/api/sync/{course_id}/gradescope - Sync only Gradescope",
+            "sync_prairielearn": "/api/sync/{course_id}/prairielearn - Sync only PrairieLearn",
+            "sync_iclicker": "/api/sync/{course_id}/iclicker - Sync only iClicker",
+            "summary": "/api/summary/{course_id} - Get summary sheet data"
+        }
+    }
+
+
+# ============================================================================
+# NEW UNIFIED API ENDPOINTS
+# ============================================================================
+
+@app.get("/api/courses")
+def list_courses():
+    """
+    List all configured courses.
+    
+    Returns:
+        List of course configurations
+    """
+    try:
+        config_manager = get_config_manager()
+        courses = []
+        
+        for course_config in config_manager.list_course_configs():
+            courses.append({
+                "id": course_config.id,
+                "name": course_config.name,
+                "department": course_config.department,
+                "course_number": course_config.course_number,
+                "semester": course_config.semester,
+                "year": course_config.year,
+                "instructor": course_config.instructor,
+                "enabled_sources": {
+                    "gradescope": course_config.gradescope_enabled,
+                    "prairielearn": course_config.prairielearn_enabled,
+                    "iclicker": course_config.iclicker_enabled
+                }
+            })
+        
+        return JSONResponse(content={
+            "courses": courses,
+            "total": len(courses)
+        })
+        
+    except Exception as e:
+        logger.exception("Failed to list courses")
+        raise HTTPException(status_code=500, detail=f"Failed to list courses: {str(e)}")
+
+
+@app.post("/api/sync/{course_id}")
+async def sync_all_grades(course_id: str, background_tasks: BackgroundTasks):
+    """
+    Sync all grades for a specific course from all enabled sources.
+    
+    This endpoint will:
+    1. Sync Gradescope (if enabled)
+    2. Sync PrairieLearn (if enabled)
+    3. Sync iClicker (if enabled)
+    4. Update summary sheets in database
+    
+    Args:
+        course_id: Course identifier (e.g., 'cs10_fa25')
+        background_tasks: FastAPI background tasks
+    
+    Returns:
+        Sync results from all sources
+    """
+    try:
+        # Verify course exists
+        config_manager = get_config_manager()
+        course_config = config_manager.get_course(course_id)
+        
+        if not course_config:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Course not found: {course_id}. Available courses: {config_manager.list_courses()}"
+            )
+        
+        # Start sync (can run in background for long operations)
+        logger.info(f"Starting grade sync for course: {course_id}")
+        
+        # For now, run synchronously. Can be moved to background_tasks if needed
+        result = sync_course_grades(course_id)
+        
+        return JSONResponse(content=result)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Failed to sync grades for {course_id}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to sync grades: {str(e)}"
+        )
+
+
+@app.post("/api/sync/{course_id}/gradescope")
+async def sync_gradescope_only(course_id: str):
+    """
+    Sync only Gradescope grades for a course.
+    
+    Args:
+        course_id: Course identifier
+    
+    Returns:
+        Gradescope sync result
+    """
+    try:
+        from grade_sync_service import GradeSyncService
+        
+        service = GradeSyncService(course_id)
+        
+        if not service.config.gradescope_enabled:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Gradescope is not enabled for course: {course_id}"
+            )
+        
+        result = service._sync_gradescope()
+        return JSONResponse(content=result.to_dict())
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Failed to sync Gradescope for {course_id}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to sync Gradescope: {str(e)}"
+        )
+
+
+@app.post("/api/sync/{course_id}/prairielearn")
+async def sync_prairielearn_only(course_id: str):
+    """
+    Sync only PrairieLearn grades for a course.
+    
+    Args:
+        course_id: Course identifier
+    
+    Returns:
+        PrairieLearn sync result
+    """
+    try:
+        from grade_sync_service import GradeSyncService
+        
+        service = GradeSyncService(course_id)
+        
+        if not service.config.prairielearn_enabled:
+            raise HTTPException(
+                status_code=400,
+                detail=f"PrairieLearn is not enabled for course: {course_id}"
+            )
+        
+        result = service._sync_prairielearn()
+        return JSONResponse(content=result.to_dict())
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Failed to sync PrairieLearn for {course_id}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to sync PrairieLearn: {str(e)}"
+        )
+
+
+@app.post("/api/sync/{course_id}/iclicker")
+async def sync_iclicker_only(course_id: str):
+    """
+    Sync only iClicker grades for a course.
+    
+    Args:
+        course_id: Course identifier
+    
+    Returns:
+        iClicker sync result
+    """
+    try:
+        from grade_sync_service import GradeSyncService
+        
+        service = GradeSyncService(course_id)
+        
+        if not service.config.iclicker_enabled:
+            raise HTTPException(
+                status_code=400,
+                detail=f"iClicker is not enabled for course: {course_id}"
+            )
+        
+        result = service._sync_iclicker()
+        return JSONResponse(content=result.to_dict())
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Failed to sync iClicker for {course_id}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to sync iClicker: {str(e)}"
+        )
+
+
+@app.get("/api/summary/{course_id}")
+async def get_course_summary(course_id: str):
+    """
+    Get summary sheet data for a course from database.
+    
+    Args:
+        course_id: Course identifier
+    
+    Returns:
+        Summary sheet data with all student grades
+    """
+    try:
+        from summary_from_db import get_summary_sheet_from_db
+        from config_manager import get_course_config
+        
+        course_config = get_course_config(course_id)
+        if not course_config:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Course not found: {course_id}"
+            )
+        
+        if not course_config.gradescope_course_id:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Gradescope course ID not configured for: {course_id}"
+            )
+        
+        summary_data = get_summary_sheet_from_db(course_config.gradescope_course_id)
+        
+        return JSONResponse(content=summary_data)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Failed to get summary for {course_id}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get summary: {str(e)}"
+        )
+
+
+# ============================================================================
+# LEGACY ENDPOINTS (kept for backward compatibility)
+# ============================================================================
 
 
 @app.get("/items/{item_id}")
@@ -301,3 +562,46 @@ def retrieve_gradebook():
     r = backoff(requests.get, args = [url], kwargs = {'headers': headers}, max_tries = 3,  max_delay = 30, strategy = strategies.Exponential)
     data = r.json()
     return data
+
+
+@app.get("/getSummarySheet")
+@handle_errors
+def get_summary_sheet(course_id: str = None):
+    """
+    Fetches pre-computed summary sheet data from database.
+    
+    This endpoint returns the summary sheet data that has been pre-computed and stored
+    in the database, providing fast access to all student grades across all assignments.
+    
+    Parameters:
+        course_id (str): The Gradescope course ID. If not provided, uses default (CS_10_GS_COURSE_ID).
+    
+    Returns:
+        dict: Summary sheet data containing:
+            - assignments: List of assignment names in order
+            - students: List of student records with scores
+            - categories: Map of assignment names to category names
+            - max_points: Map of assignment names to max points
+    
+    Example Response:
+    {
+        "assignments": ["Lab 1", "Lab 2", "Project 1", ...],
+        "students": [
+            {
+                "legal_name": "John Doe",
+                "email": "john@example.com",
+                "scores": {"Lab 1": 10, "Lab 2": 9.5, ...}
+            },
+            ...
+        ],
+        "categories": {"Lab 1": "Labs", "Project 1": "Projects", ...},
+        "max_points": {"Lab 1": 10, "Lab 2": 10, ...}
+    }
+    """
+    from summary_from_db import get_summary_sheet_from_db
+    
+    course_id = course_id or CS_10_GS_COURSE_ID
+    summary_data = get_summary_sheet_from_db(course_id)
+    
+    return JSONResponse(content=summary_data, status_code=200)
+

@@ -72,3 +72,17 @@ class SheetSync(Base):
     last_summary_sync_at = Column(DateTime(timezone=True))
     summary_spreadsheet_id = Column(String)
     notes = Column(JSON)
+
+
+class SummarySheet(Base):
+    __tablename__ = "summary_sheets"
+    id = Column(Integer, primary_key=True)
+    course_id = Column(Integer, ForeignKey("courses.id"), nullable=False, index=True)
+    student_id = Column(Integer, ForeignKey("students.id"), nullable=False, index=True)
+    assignment_id = Column(Integer, ForeignKey("assignments.id"), nullable=False, index=True)
+    score = Column(Numeric)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    __table_args__ = (
+        UniqueConstraint('course_id', 'student_id', 'assignment_id', name='uq_summary_course_student_assignment'),
+    )

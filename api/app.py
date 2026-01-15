@@ -1,48 +1,120 @@
+"""
+GradeSync API - FastAPI Application
+
+A unified API for synchronizing student grades from multiple assessment platforms:
+- Gradescope: Online grading platform
+- PrairieLearn: Learning management system
+- iClicker: Classroom response system
+
+Author: GradeSync Team
+Version: 2.0.0
+"""
+
+# ============================================================================
+# IMPORTS
+# ============================================================================
+
+# FastAPI and web framework imports
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.responses import JSONResponse, PlainTextResponse
-from gradescopeClient import GradescopeClient
-from utils import *
+import requests
+from typing import Optional, List, Dict, Any
+import logging
+
+# Third-party integrations
 import gspread
 from google.oauth2.service_account import Credentials
 from backoff_utils import strategies
 from backoff_utils import backoff
-import requests
-from typing import Optional, List
-import logging
 
-# Import unified configuration and services
+# Local modules
+from gradescopeClient import GradescopeClient
+from utils import *
 from config_manager import get_config_manager, list_available_courses
 from grade_sync_service import sync_course_grades
+from schemas import (
+    CourseInfo, 
+    CoursesResponse, 
+    SyncResultDetail, 
+    SyncResponse, 
+    StudentScore, 
+    SummaryResponse
+)
 
+# ============================================================================
+# CONFIGURATION
+# ============================================================================
+
+# Initialize logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Google Sheets API scopes
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
+# Initialize Google Sheets client
 credentials_json = os.getenv("SERVICE_ACCOUNT_CREDENTIALS")
 credentials_dict = json.loads(credentials_json)
 credentials = Credentials.from_service_account_info(credentials_dict, scopes=SCOPES)
 client = gspread.authorize(credentials)
-app = FastAPI()
+
+# Initialize FastAPI application with metadata
+app = FastAPI(
+    title="GradeSync API",
+    description="Unified API for synchronizing grades from Gradescope, PrairieLearn, and iClicker",
+    version="2.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc",
+)
+
+# Initialize Gradescope client (with automatic session management)
 GRADESCOPE_CLIENT = GradescopeClient()
-# Load JSON variables
+
+# Load legacy configuration (CS10 Fall 2024)
+# TODO: Migrate to unified config.json system
 config_path = os.path.join(os.path.dirname(__file__), "config/cs10_fall_2024.json")
 with open(config_path, "r") as config_file:
     config = json.load(config_file)
 
-# Hardcoded (for now) GradeScope CS10 Fall 2024 COURSE ID
-CS_10_GS_COURSE_ID = str(config.get("GRADESCOPE_COURSE_ID"))
-# Hardcoded (for now) PL CS10 Summer 2024 COURSE ID
-CS_10_PL_COURSE_ID = str(config.get("PL_COURSE_ID"))
+# Legacy course IDs (for backward compatibility)
+CS_10_GS_COURSE_ID = str(config.get("GRADESCOPE_COURSE_ID"))  # Gradescope course ID
+CS_10_PL_COURSE_ID = str(config.get("PL_COURSE_ID"))  # PrairieLearn course ID
+
+# PrairieLearn API configuration
 PL_API_TOKEN = os.getenv("PL_API_TOKEN")
 PL_SERVER = "https://us.prairielearn.com/pl/api/v1"
 
 
-@app.get("/")
+# ============================================================================
+# ROOT ENDPOINT
+# ============================================================================
+
+@app.get(
+    "/",
+    tags=["General"],
+    summary="API Information",
+    description="Get basic information about the GradeSync API and available endpoints"
+)
 def read_root():
+    """
+    Root endpoint providing API information and endpoint discovery.
+    
+    Returns:
+        dict: API metadata including version and available endpoints
+        
+    Example:
+        ```bash
+        curl http://localhost:8000/
+        ```
+    """
     return {
         "message": "Welcome to the GradeSync API",
         "version": "2.0",
+        "documentation": {
+            "swagger_ui": "/docs",
+            "redoc": "/redoc",
+            "openapi_schema": "/openapi.json"
+        },
         "endpoints": {
             "courses": "/api/courses - List all configured courses",
             "sync": "/api/sync/{course_id} - Sync all grades for a course",
@@ -55,16 +127,41 @@ def read_root():
 
 
 # ============================================================================
-# NEW UNIFIED API ENDPOINTS
+# UNIFIED API ENDPOINTS
+# ============================================================================
+# These endpoints provide a modern, unified interface for managing grades
+# across multiple courses and platforms.
 # ============================================================================
 
-@app.get("/api/courses")
+@app.get(
+    "/api/courses",
+    response_model=CoursesResponse,
+    tags=["Courses"],
+    summary="List All Courses",
+    description="Retrieve a list of all configured courses with their enabled integration sources"
+)
 def list_courses():
     """
-    List all configured courses.
+    List all configured courses in the system.
+    
+    Returns a comprehensive list of courses loaded from config.json, including:
+    - Course identification (ID, name, department, number)
+    - Semester and year information
+    - Instructor name
+    - Enabled integration sources (Gradescope, PrairieLearn, iClicker)
     
     Returns:
-        List of course configurations
+        JSONResponse: Object containing:
+            - courses (list): Array of course configuration objects
+            - total (int): Total number of courses
+    
+    Raises:
+        HTTPException: 500 if unable to load course configurations
+        
+    Example:
+        ```bash
+        curl http://localhost:8000/api/courses
+        ```
     """
     try:
         config_manager = get_config_manager()
@@ -96,23 +193,46 @@ def list_courses():
         raise HTTPException(status_code=500, detail=f"Failed to list courses: {str(e)}")
 
 
-@app.post("/api/sync/{course_id}")
+@app.post(
+    "/api/sync/{course_id}",
+    response_model=SyncResponse,
+    tags=["Synchronization"],
+    summary="Sync All Grades",
+    description="Synchronize grades from all enabled sources for a specific course"
+)
 async def sync_all_grades(course_id: str, background_tasks: BackgroundTasks):
     """
     Sync all grades for a specific course from all enabled sources.
     
-    This endpoint will:
-    1. Sync Gradescope (if enabled)
-    2. Sync PrairieLearn (if enabled)
-    3. Sync iClicker (if enabled)
-    4. Update summary sheets in database
+    This is the main synchronization endpoint that orchestrates grade syncing
+    from multiple platforms. The sync process runs sequentially:
+    
+    1. **Gradescope** - Fetches assignments and student scores (if enabled)
+    2. **PrairieLearn** - Syncs assessments and grades (if enabled)
+    3. **iClicker** - Imports attendance and participation data (if enabled)
+    4. **Database Update** - Stores all grades in PostgreSQL
+    5. **Summary Generation** - Creates aggregate summary sheets
     
     Args:
-        course_id: Course identifier (e.g., 'cs10_fa25')
-        background_tasks: FastAPI background tasks
+        course_id (str): Course identifier from config.json (e.g., 'cs10_fa25')
+        background_tasks (BackgroundTasks): FastAPI background task manager (unused currently)
     
     Returns:
-        Sync results from all sources
+        JSONResponse: Sync results containing:
+            - course_id (str): Course identifier
+            - course_name (str): Full course name
+            - timestamp (str): ISO 8601 timestamp of sync
+            - results (list): Array of sync results from each source
+            - overall_success (bool): Whether all syncs succeeded
+    
+    Raises:
+        HTTPException: 404 if course not found
+        HTTPException: 500 if sync fails
+        
+    Example:
+        ```bash
+        curl -X POST http://localhost:8000/api/sync/cs10_fa25
+        ```
     """
     try:
         # Verify course exists
@@ -143,16 +263,32 @@ async def sync_all_grades(course_id: str, background_tasks: BackgroundTasks):
         )
 
 
-@app.post("/api/sync/{course_id}/gradescope")
+@app.post(
+    "/api/sync/{course_id}/gradescope",
+    response_model=SyncResultDetail,
+    tags=["Synchronization"],
+    summary="Sync Gradescope Only",
+    description="Synchronize only Gradescope grades for a specific course"
+)
 async def sync_gradescope_only(course_id: str):
     """
     Sync only Gradescope grades for a course.
     
+    This endpoint performs a targeted sync of only Gradescope data,
+    skipping PrairieLearn and iClicker. Useful when you need to:
+    - Quickly update Gradescope assignments
+    - Test Gradescope integration independently
+    - Re-sync after grading specific assignments
+    
     Args:
-        course_id: Course identifier
+        course_id (str): Course identifier
     
     Returns:
-        Gradescope sync result
+        JSONResponse: Gradescope sync result with details of synced assignments
+    
+    Raises:
+        HTTPException: 400 if Gradescope not enabled for this course
+        HTTPException: 500 if sync fails
     """
     try:
         from grade_sync_service import GradeSyncService
@@ -178,16 +314,29 @@ async def sync_gradescope_only(course_id: str):
         )
 
 
-@app.post("/api/sync/{course_id}/prairielearn")
+@app.post(
+    "/api/sync/{course_id}/prairielearn",
+    response_model=SyncResultDetail,
+    tags=["Synchronization"],
+    summary="Sync PrairieLearn Only",
+    description="Synchronize only PrairieLearn grades for a specific course"
+)
 async def sync_prairielearn_only(course_id: str):
     """
     Sync only PrairieLearn grades for a course.
     
+    This endpoint performs a targeted sync of only PrairieLearn data.
+    Fetches all assessments and student grades from PrairieLearn API.
+    
     Args:
-        course_id: Course identifier
+        course_id (str): Course identifier
     
     Returns:
-        PrairieLearn sync result
+        JSONResponse: PrairieLearn sync result with assessment details
+    
+    Raises:
+        HTTPException: 400 if PrairieLearn not enabled for this course
+        HTTPException: 500 if sync fails
     """
     try:
         from grade_sync_service import GradeSyncService
@@ -213,16 +362,29 @@ async def sync_prairielearn_only(course_id: str):
         )
 
 
-@app.post("/api/sync/{course_id}/iclicker")
+@app.post(
+    "/api/sync/{course_id}/iclicker",
+    response_model=SyncResultDetail,
+    tags=["Synchronization"],
+    summary="Sync iClicker Only",
+    description="Synchronize only iClicker attendance and participation data"
+)
 async def sync_iclicker_only(course_id: str):
     """
     Sync only iClicker grades for a course.
     
+    This endpoint performs a targeted sync of only iClicker data.
+    Fetches attendance and participation records for all registered sessions.
+    
     Args:
-        course_id: Course identifier
+        course_id (str): Course identifier
     
     Returns:
-        iClicker sync result
+        JSONResponse: iClicker sync result with session participation data
+    
+    Raises:
+        HTTPException: 400 if iClicker not enabled for this course
+        HTTPException: 500 if sync fails
     """
     try:
         from grade_sync_service import GradeSyncService
@@ -248,16 +410,46 @@ async def sync_iclicker_only(course_id: str):
         )
 
 
-@app.get("/api/summary/{course_id}")
+@app.get(
+    "/api/summary/{course_id}",
+    response_model=SummaryResponse,
+    tags=["Grades"],
+    summary="Get Course Summary",
+    description="Retrieve pre-computed summary sheet with all student grades"
+)
 async def get_course_summary(course_id: str):
     """
-    Get summary sheet data for a course from database.
+    Get summary sheet data for a course from the database.
+    
+    This endpoint retrieves pre-computed grade summaries that aggregate data
+    from all sources (Gradescope, PrairieLearn, iClicker). The summary includes:
+    - List of all assignments
+    - Student roster with email addresses
+    - Grade matrix (students × assignments)
+    - Assignment categories and max points
+    
+    The data is pulled from PostgreSQL for fast access without hitting
+    external APIs.
     
     Args:
-        course_id: Course identifier
+        course_id (str): Course identifier
     
     Returns:
-        Summary sheet data with all student grades
+        JSONResponse: Summary sheet data structure:
+            - assignments (list): All assignment names
+            - students (list): Student records with scores
+            - categories (dict): Assignment category mappings
+            - max_points (dict): Maximum points per assignment
+    
+    Raises:
+        HTTPException: 404 if course not found
+        HTTPException: 400 if Gradescope course ID not configured
+        HTTPException: 500 if database query fails
+        
+    Example:
+        ```bash
+        curl http://localhost:8000/api/summary/cs10_fa25
+        ```
     """
     try:
         from summary_from_db import get_summary_sheet_from_db
@@ -291,12 +483,33 @@ async def get_course_summary(course_id: str):
 
 
 # ============================================================================
-# LEGACY ENDPOINTS (kept for backward compatibility)
+# LEGACY ENDPOINTS
+# ============================================================================
+# These endpoints are maintained for backward compatibility with existing
+# integrations. They will be deprecated in a future version.
+# 
+# New integrations should use the unified API endpoints above.
 # ============================================================================
 
-
-@app.get("/items/{item_id}")
+@app.get(
+    "/items/{item_id}",
+    tags=["Legacy"],
+    deprecated=True,
+    summary="[DEPRECATED] Test Endpoint"
+)
 def read_item(item_id: int, q: str = None):
+    """
+    Legacy test endpoint.
+    
+    **DEPRECATED**: This endpoint will be removed in v3.0.
+    
+    Args:
+        item_id (int): Item identifier
+        q (str, optional): Query parameter
+        
+    Returns:
+        dict: Echo of input parameters
+    """
     return {"item_id": item_id, "query": q}
 
 

@@ -17,9 +17,9 @@ from datetime import datetime
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from api.config_manager import get_course_config, EnvConfig
-from api.db import SessionLocal
-from api.models import Course
-from api.ingest import save_summary_sheet_to_db
+from api.core.db import SessionLocal
+from api.core.models import Course
+from api.core.ingest import save_summary_sheet_to_db
 
 logger = logging.getLogger(__name__)
 
@@ -204,7 +204,7 @@ class GradeSyncService:
         logger.info(f"Updating summary sheets in database for {self.course_id}")
         
         try:
-            from api.models import Assignment, Student, Submission
+            from api.core.models import Assignment, Student, Submission
             
             session = SessionLocal()
             try:
@@ -239,8 +239,12 @@ class GradeSyncService:
                     "submissions": submission_lookup
                 }
                 
-                # Save to summary_sheets table
-                save_summary_sheet_to_db(self.config.gradescope_course_id, course_data)
+                # Save to summary_sheets table with course categories
+                save_summary_sheet_to_db(
+                    self.config.gradescope_course_id, 
+                    course_data,
+                    course_categories=self.config.categories
+                )
                 
                 return GradeSyncResult(
                     source="database",

@@ -37,46 +37,34 @@
       "database": {
         "enabled": true,
         "use_as_primary": true
-      }
-    },
-    {
-      "id": "cs10_sp25",
-      "name": "CS10: The Beauty and Joy of Computing",
-      "department": "COMPSCI",
-      "course_number": "10",
-      "semester": "Spring",
-      "year": 2025,
-      "instructor": "Dan Garcia",
-      
-      "gradescope": {
-        "enabled": true,
-        "course_id": "1150618",
-        "sync_interval_hours": 24
       },
       
-      "prairielearn": {
-        "enabled": true,
-        "course_id": "192475"
-      },
-      
-      "iclicker": {
-        "enabled": true,
-        "course_names": [
-          "[CS10 | Sp25] Discussion",
-          "[CS10 | Sp25] Lab",
-          "[CS10 | Sp25] Lecture"
-        ]
-      },
-      
-      "spreadsheet": {
-        "id": "1Wkg8jH-WHBOm-J1-cGrFGucawmzndhV6nCQm14zXag8",
-        "scopes": ["https://www.googleapis.com/auth/spreadsheets"]
-      },
-      
-      "database": {
-        "enabled": true,
-        "use_as_primary": true
-      }
+      "assignment_categories": [
+        {
+          "name": "Attendance / Participation",
+          "patterns": ["Lecture Quiz", "Discussion"]
+        },
+        {
+          "name": "Labs",
+          "patterns": ["Lab"]
+        },
+        {
+          "name": "Projects",
+          "patterns": ["Project"]
+        },
+        {
+          "name": "Quest",
+          "patterns": ["Quest"]
+        },
+        {
+          "name": "Midterm",
+          "patterns": ["Midterm"]
+        },
+        {
+          "name": "Postterm",
+          "patterns": ["Postterm"]
+        }
+      ]
     }
   ],
   

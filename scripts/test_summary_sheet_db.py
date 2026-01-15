@@ -29,9 +29,9 @@ logger = logging.getLogger(__name__)
 
 def test_save_and_retrieve(course_gradescope_id):
     """Test saving and retrieving summary sheet data."""
-    from api.db import SessionLocal
-    from api.models import Course, Assignment, Student, Submission
-    from api.ingest import save_summary_sheet_to_db
+    from api.core.db import SessionLocal
+    from api.core.models import Course, Assignment, Student, Submission
+    from api.core.ingest import save_summary_sheet_to_db
     from api.summary_from_db import get_summary_sheet_from_db, get_summary_data_from_db
     
     logger.info(f"Testing summary sheet DB functionality for course: {course_gradescope_id}")

@@ -35,6 +35,7 @@ class CourseConfig:
         self.iclicker = course_data.get("iclicker", {})
         self.spreadsheet = course_data.get("spreadsheet", {})
         self.database = course_data.get("database", {})
+        self.assignment_categories = course_data.get("assignment_categories", [])
     
     @property
     def gradescope_enabled(self) -> bool:
@@ -71,6 +72,11 @@ class CourseConfig:
     @property
     def use_db_as_primary(self) -> bool:
         return self.database.get("use_as_primary", False)
+    
+    @property
+    def categories(self) -> List[Dict[str, Any]]:
+        """Get assignment categories configuration."""
+        return self.assignment_categories
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""

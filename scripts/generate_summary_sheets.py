@@ -26,9 +26,9 @@ from dotenv import load_dotenv
 import json
 
 from api.config_loader import load_config, list_courses, DEFAULT_SCOPES
-from api.db import SessionLocal
-from api.models import Course, Assignment, Student, Submission
-from api.ingest import save_summary_sheet_to_db
+from api.core.db import SessionLocal
+from api.core.models import Course, Assignment, Student, Submission
+from api.core.ingest import save_summary_sheet_to_db
 from sqlalchemy import func
 
 load_dotenv()

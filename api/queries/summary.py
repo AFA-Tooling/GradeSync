@@ -3,8 +3,8 @@ Generate Summary sheet data from DB instead of using XLOOKUP formulas.
 """
 import logging
 from sqlalchemy.orm import joinedload
-from .db import SessionLocal
-from .models import Course, Assignment, Student, Submission, SummarySheet
+from core.db import SessionLocal
+from core.models import Course, Assignment, Student, Submission, SummarySheet
 
 logger = logging.getLogger(__name__)
 

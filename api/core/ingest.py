@@ -4,15 +4,16 @@ import os
 import json
 from datetime import datetime
 from sqlalchemy.exc import IntegrityError
-from .db import SessionLocal, init_db
-from .models import Course, Assignment, Student, Submission
+from core.db import SessionLocal, init_db
+from core.models import Course, Assignment, Student, Submission
 import logging
 
 logger = logging.getLogger(__name__)
 
-# Load category configuration
+# Legacy fallback: Load category configuration from assignment_categories.json
 CATEGORY_CONFIG = None
 def _load_category_config():
+    """Load legacy category config as fallback."""
     global CATEGORY_CONFIG
     if CATEGORY_CONFIG is None:
         config_path = os.path.join(os.path.dirname(__file__), 'assignment_categories.json')
@@ -20,23 +21,34 @@ def _load_category_config():
             with open(config_path, 'r') as f:
                 CATEGORY_CONFIG = json.load(f)
         except Exception as e:
-            logger.warning(f"Failed to load category config: {e}")
+            logger.warning(f"Failed to load legacy category config: {e}")
             CATEGORY_CONFIG = {"categories": []}
     return CATEGORY_CONFIG
 
-def _categorize_assignment(assignment_name: str) -> str:
+def _categorize_assignment(assignment_name: str, course_categories: list = None) -> str:
     """Determine category based on assignment name.
     
     Excludes assignments starting with 'Practice'.
     Uses fuzzy matching - normalizes underscores, case, and whitespace.
+    
+    Args:
+        assignment_name: Name of the assignment
+        course_categories: List of category configs from course config (preferred)
+                          If None, falls back to assignment_categories.json
     """
     # Exclude Practice assignments
     normalized = assignment_name.replace('_', ' ').strip()
     if normalized.lower().startswith('practice'):
         return None
     
-    config = _load_category_config()
-    for cat in config.get('categories', []):
+    # Use course-specific categories if provided, otherwise fallback to legacy
+    if course_categories:
+        categories = course_categories
+    else:
+        config = _load_category_config()
+        categories = config.get('categories', [])
+    
+    for cat in categories:
         for pattern in cat.get('patterns', []):
             # Fuzzy match: both sides lowercase, ignore extra spaces
             if pattern.lower() in normalized.lower():
@@ -47,7 +59,8 @@ def _categorize_assignment(assignment_name: str) -> str:
 def write_assignment_scores_to_db(course_gradescope_id: str, assignment_id: str, assignment_name: str, csv_filepath: str, 
                                   spreadsheet_id: str = None, course_name: str = None, 
                                   department: str = None, course_number: str = None, 
-                                  semester: str = None, year: str = None, instructor: str = None):
+                                  semester: str = None, year: str = None, instructor: str = None,
+                                  course_categories: list = None):
     """Parse the given CSV file and upsert Course, Assignment, Student and Submission rows.
 
     Args:
@@ -111,14 +124,14 @@ def write_assignment_scores_to_db(course_gradescope_id: str, assignment_id: str,
         # Ensure assignment exists
         assignment = session.query(Assignment).filter(Assignment.assignment_id == str(assignment_id), Assignment.course_id == course.id).first()
         if not assignment:
-            category = _categorize_assignment(assignment_name)
+            category = _categorize_assignment(assignment_name, course_categories)
             assignment = Assignment(assignment_id=str(assignment_id), course_id=course.id, title=assignment_name, category=category)
             session.add(assignment)
             session.flush()
         else:
             # Update category if not set
             if not assignment.category:
-                assignment.category = _categorize_assignment(assignment_name)
+                assignment.category = _categorize_assignment(assignment_name, course_categories)
 
         # Parse CSV and upsert records
         with open(csv_filepath, "rb") as fh:
@@ -269,7 +282,7 @@ def write_assignment_scores_to_db(course_gradescope_id: str, assignment_id: str,
         session.close()
 
 
-def save_summary_sheet_to_db(course_gradescope_id: str, summary_data: dict):
+def save_summary_sheet_to_db(course_gradescope_id: str, summary_data: dict, course_categories: list = None):
     """
     Save summary sheet data to database.
     
@@ -279,11 +292,12 @@ def save_summary_sheet_to_db(course_gradescope_id: str, summary_data: dict):
             - assignments: list of Assignment objects
             - students: list of Student objects
             - submissions: dict mapping (assignment_id, student_id) to Submission
+        course_categories: Optional list of category configurations from course config
     
     This function stores the computed summary in the summary_sheets table,
     making it efficient to retrieve summary data without recomputing.
     """
-    from .models import SummarySheet
+    from core.models import SummarySheet
     
     session = SessionLocal()
     try:

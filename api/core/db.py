@@ -8,7 +8,8 @@ load_dotenv()
 
 # DATABASE_URL must be set in the environment for Postgres, e.g.:
 # postgresql://user:password@host:port/dbname
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/gradesync")
+# Default matches docker-compose.yml database configuration
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://gradesync:changeme@localhost:5432/gradesync")
 
 engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

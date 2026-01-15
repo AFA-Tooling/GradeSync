@@ -22,8 +22,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from fullGSapi.api import client as GradescopeClient
-from api.ingest import write_assignment_scores_to_db
-from api.db import init_db
+from api.core.ingest import write_assignment_scores_to_db
+from api.core.db import init_db
 from api.config_loader import load_config, DEFAULT_SCOPES
 from dotenv import load_dotenv
 

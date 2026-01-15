@@ -28,10 +28,10 @@ from backoff_utils import strategies
 from backoff_utils import backoff
 
 # Local modules
-from gradescopeClient import GradescopeClient
+from services.gradescope.client import GradescopeClient
 from utils import *
 from config_manager import get_config_manager, list_available_courses
-from grade_sync_service import sync_course_grades
+from sync.service import sync_course_grades
 from schemas import (
     CourseInfo, 
     CoursesResponse, 
@@ -291,7 +291,7 @@ async def sync_gradescope_only(course_id: str):
         HTTPException: 500 if sync fails
     """
     try:
-        from grade_sync_service import GradeSyncService
+        from sync.service import GradeSyncService
         
         service = GradeSyncService(course_id)
         
@@ -339,7 +339,7 @@ async def sync_prairielearn_only(course_id: str):
         HTTPException: 500 if sync fails
     """
     try:
-        from grade_sync_service import GradeSyncService
+        from sync.service import GradeSyncService
         
         service = GradeSyncService(course_id)
         
@@ -387,7 +387,7 @@ async def sync_iclicker_only(course_id: str):
         HTTPException: 500 if sync fails
     """
     try:
-        from grade_sync_service import GradeSyncService
+        from sync.service import GradeSyncService
         
         service = GradeSyncService(course_id)
         
@@ -452,7 +452,7 @@ async def get_course_summary(course_id: str):
         ```
     """
     try:
-        from summary_from_db import get_summary_sheet_from_db
+        from queries.summary import get_summary_sheet_from_db
         from config_manager import get_course_config
         
         course_config = get_course_config(course_id)
@@ -811,7 +811,7 @@ def get_summary_sheet(course_id: str = None):
         "max_points": {"Lab 1": 10, "Lab 2": 10, ...}
     }
     """
-    from summary_from_db import get_summary_sheet_from_db
+    from queries.summary import get_summary_sheet_from_db
     
     course_id = course_id or CS_10_GS_COURSE_ID
     summary_data = get_summary_sheet_from_db(course_id)

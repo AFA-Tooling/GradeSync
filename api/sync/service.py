@@ -104,24 +104,29 @@ class GradeSyncService:
         return summary
     
     def _sync_gradescope(self) -> GradeSyncResult:
-        """Sync grades from Gradescope."""
+        """Sync grades from Gradescope using new services layer."""
         logger.info(f"Syncing Gradescope for course {self.config.gradescope_course_id}")
         
         try:
-            # Import Gradescope sync functionality
-            from gradescope.gradescope_sync import sync_gradescope_course
+            # Import new Gradescope sync from services layer
+            from api.services.gradescope import GradescopeSync
             
-            # Sync grades
-            result = sync_gradescope_course(
+            # Get credentials from environment
+            email, password = EnvConfig.get_gradescope_credentials()
+            
+            # Create sync instance
+            sync = GradescopeSync(
+                email=email,
+                password=password
+            )
+            
+            # Sync grades with course config
+            result = sync.sync_course(
                 course_id=self.config.gradescope_course_id,
                 spreadsheet_id=self.config.spreadsheet_id,
+                save_to_db=self.config.database_enabled,
                 course_name=self.config.name,
-                department=self.config.department,
-                course_number=self.config.course_number,
-                semester=self.config.semester,
-                year=self.config.year,
-                instructor=self.config.instructor,
-                use_db=self.config.database_enabled
+                course_config=self.config.to_dict()
             )
             
             return GradeSyncResult(
@@ -140,18 +145,26 @@ class GradeSyncService:
             )
     
     def _sync_prairielearn(self) -> GradeSyncResult:
-        """Sync grades from PrairieLearn."""
+        """Sync grades from PrairieLearn using new services layer."""
         logger.info(f"Syncing PrairieLearn for course {self.config.prairielearn_course_id}")
         
         try:
-            # Import PrairieLearn sync functionality
-            from prairieLearn.pl_sync import sync_prairielearn_course
+            # Import new PrairieLearn sync from services layer
+            from api.services.prairielearn import PrairieLearnSync
+            
+            # Get credentials from environment
+            api_token = EnvConfig.get_prairielearn_token()
+            
+            # Create sync instance
+            sync = PrairieLearnSync(
+                api_token=api_token
+            )
             
             # Sync grades
-            result = sync_prairielearn_course(
+            result = sync.sync_course(
                 course_id=self.config.prairielearn_course_id,
                 spreadsheet_id=self.config.spreadsheet_id,
-                use_db=self.config.database_enabled
+                save_to_db=self.config.database_enabled
             )
             
             return GradeSyncResult(
@@ -170,18 +183,27 @@ class GradeSyncService:
             )
     
     def _sync_iclicker(self) -> GradeSyncResult:
-        """Sync grades from iClicker."""
+        """Sync grades from iClicker using new services layer."""
         logger.info(f"Syncing iClicker for course {self.course_id}")
         
         try:
-            # Import iClicker sync functionality
-            from iclicker.iclicker_sync import sync_iclicker_course
+            # Import new iClicker sync from services layer
+            from api.services.iclicker import IClickerSync
+            
+            # Get credentials from environment
+            username, password = EnvConfig.get_iclicker_credentials()
+            
+            # Create sync instance
+            sync = IClickerSync(
+                username=username,
+                password=password
+            )
             
             # Sync grades for all course sections
-            result = sync_iclicker_course(
+            result = sync.sync_courses(
                 course_names=self.config.iclicker_course_names,
                 spreadsheet_id=self.config.spreadsheet_id,
-                use_db=self.config.database_enabled
+                save_to_db=self.config.database_enabled
             )
             
             return GradeSyncResult(
@@ -208,13 +230,21 @@ class GradeSyncService:
             
             session = SessionLocal()
             try:
-                # Get course
+                # Get course, create if not exists
                 course = session.query(Course).filter(
                     Course.gradescope_course_id == self.config.gradescope_course_id
                 ).first()
                 
                 if not course:
-                    raise ValueError(f"Course not found in database: {self.config.gradescope_course_id}")
+                    logger.info(f"Course {self.config.gradescope_course_id} not found, creating...")
+                    course = Course(
+                        name=self.config.name,
+                        gradescope_course_id=self.config.gradescope_course_id,
+                        spreadsheet_id=self.config.spreadsheet_id
+                    )
+                    session.add(course)
+                    session.commit()
+                    logger.info(f"Created course: {course.name} (ID: {course.id})")
                 
                 # Get all data
                 assignments = session.query(Assignment).filter(

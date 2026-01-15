@@ -3,8 +3,8 @@ Generate Summary sheet data from DB instead of using XLOOKUP formulas.
 """
 import logging
 from sqlalchemy.orm import joinedload
-from core.db import SessionLocal
-from core.models import Course, Assignment, Student, Submission, SummarySheet
+from api.core.db import SessionLocal
+from api.core.models import Course, Assignment, Student, Submission, SummarySheet
 
 logger = logging.getLogger(__name__)
 
@@ -237,11 +237,11 @@ def get_summary_sheet_from_db(course_gradescope_id: str):
         assignment_names = [a.title for a in sorted_assignments]
         assignment_id_map = {a.id: a.title for a in sorted_assignments}
         
-        # Build categories and max_points maps
+        # Build categories and max_points maps using persisted assignment.category
         categories = {}
         max_points = {}
         for assignment in sorted_assignments:
-            categories[assignment.title] = categorize_assignment_for_summary(assignment.title)
+            categories[assignment.title] = assignment.category or "Uncategorized"
             max_points[assignment.title] = float(assignment.max_points or 0)
         
         # Get all students

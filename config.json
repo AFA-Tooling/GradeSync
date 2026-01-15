@@ -16,12 +16,12 @@
       },
       
       "prairielearn": {
-        "enabled": true,
+        "enabled": false,
         "course_id": "192475"
       },
       
       "iclicker": {
-        "enabled": true,
+        "enabled": false,
         "course_names": [
           "[CS10 | Fa25] Discussion",
           "[CS10 | Fa25] Lab",

@@ -4,11 +4,48 @@ import os
 import json
 from datetime import datetime
 from sqlalchemy.exc import IntegrityError
-from core.db import SessionLocal, init_db
-from core.models import Course, Assignment, Student, Submission
+from .db import SessionLocal, init_db
+from .models import Course, Assignment, Student, Submission
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_submission_time(val: str):
+    """Best-effort parser for Gradescope submission timestamps."""
+    if not val:
+        return None
+
+    cleaned = val.strip()
+
+    # Handle common ISO-ish shapes and a few Gradescope exports
+    candidates = [
+        cleaned,
+        cleaned.replace("Z", "+00:00"),
+    ]
+    for candidate in candidates:
+        try:
+            return datetime.fromisoformat(candidate)
+        except Exception:
+            pass
+
+    # Try with timezone offset (e.g., "2025-09-17 23:29:50 -0700")
+    for fmt in (
+        "%Y-%m-%d %H:%M:%S %z",  # Gradescope format with timezone
+        "%Y-%m-%dT%H:%M:%S %z",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%dT%H:%M:%S",
+        "%m/%d/%y %I:%M %p",
+        "%m/%d/%Y %I:%M %p",
+    ):
+        try:
+            dt = datetime.strptime(cleaned, fmt)
+            # If timezone-aware, return as-is; otherwise return naive
+            return dt
+        except Exception:
+            continue
+
+    return None
 
 # Legacy fallback: Load category configuration from assignment_categories.json
 CATEGORY_CONFIG = None
@@ -123,15 +160,15 @@ def write_assignment_scores_to_db(course_gradescope_id: str, assignment_id: str,
 
         # Ensure assignment exists
         assignment = session.query(Assignment).filter(Assignment.assignment_id == str(assignment_id), Assignment.course_id == course.id).first()
+        category = _categorize_assignment(assignment_name, course_categories)
+        
         if not assignment:
-            category = _categorize_assignment(assignment_name, course_categories)
             assignment = Assignment(assignment_id=str(assignment_id), course_id=course.id, title=assignment_name, category=category)
             session.add(assignment)
             session.flush()
         else:
-            # Update category if not set
-            if not assignment.category:
-                assignment.category = _categorize_assignment(assignment_name, course_categories)
+            # Always update category (in case config changed)
+            assignment.category = category
 
         # Parse CSV and upsert records
         with open(csv_filepath, "rb") as fh:
@@ -156,11 +193,13 @@ def write_assignment_scores_to_db(course_gradescope_id: str, assignment_id: str,
             # Update assignment max_points from first row if not set
             if not first_row_processed:
                 first_row_processed = True
-                if assignment.max_points is None:
+                if assignment.max_points is None or assignment.max_points == 0:
                     max_pts_str = row.get('Max Points', '')
                     try:
                         if max_pts_str:
-                            assignment.max_points = float(max_pts_str)
+                            max_val = float(max_pts_str)
+                            if max_val > 0:
+                                assignment.max_points = max_val
                     except ValueError:
                         pass
             
@@ -169,20 +208,29 @@ def write_assignment_scores_to_db(course_gradescope_id: str, assignment_id: str,
             
             # Use normal field access for other columns
             sid = row.get("SID")
+            status = row.get("Status", "Missing")
             
             # Skip rows without SID - these are not valid student records
             if not sid or not sid.strip():
                 continue
             
+            # Skip Missing submissions
+            if status == "Missing":
+                continue
+            
             email = row.get("Email")
             total_score_str = row.get("Total Score", "0")
             max_points_str = row.get("Max Points", "0")
-            status = row.get("Status", "Missing")
             submission_id = row.get("Submission ID")
             submission_time_str = row.get("Submission Time")
             lateness = row.get("Lateness (H:M:S)")
             view_count_str = row.get("View Count")
             submission_count_str = row.get("Submission Count")
+            
+            # Debug: 记录前几条的 submission_time_str
+            if not first_row_processed:
+                logger.info(f"CSV has Submission Time column: {submission_time_str is not None}")
+                logger.info(f"Sample Submission Time value: '{submission_time_str}'")
 
             # Upsert student - 直接用 SID 匹配
             student = None
@@ -226,12 +274,11 @@ def write_assignment_scores_to_db(course_gradescope_id: str, assignment_id: str,
             view_count = _int(view_count_str)
             submission_count = _int(submission_count_str)
             
-            submission_time = None
-            if submission_time_str:
-                try:
-                    submission_time = datetime.fromisoformat(submission_time_str)
-                except Exception:
-                    submission_time = None
+            submission_time = _parse_submission_time(submission_time_str)
+            
+            # Debug: 总是记录第一条有 submission_time_str 的记录
+            if submission_time_str and sid:
+                logger.info(f"[SUBMISSION_TIME] SID={sid}, Raw='{submission_time_str}', Parsed={submission_time}")
 
             # per-question scores - exclude known columns
             scores_by_question = {}

@@ -21,18 +21,22 @@ import requests
 from typing import Optional, List, Dict, Any
 import logging
 
+# Environment variables
+from dotenv import load_dotenv
+load_dotenv()  # Load .env file
+
 # Third-party integrations
 import gspread
 from google.oauth2.service_account import Credentials
 from backoff_utils import strategies
 from backoff_utils import backoff
 
-# Local modules
-from services.gradescope.client import GradescopeClient
-from utils import *
-from config_manager import get_config_manager, list_available_courses
-from sync.service import sync_course_grades
-from schemas import (
+# Local modules - use api prefix for proper imports
+from api.services.gradescope import GradescopeClient
+from api.utils import *
+from api.config_manager import get_config_manager, list_available_courses
+from api.sync.service import sync_course_grades
+from api.schemas import (
     CourseInfo, 
     CoursesResponse, 
     SyncResultDetail, 
@@ -70,15 +74,11 @@ app = FastAPI(
 # Initialize Gradescope client (with automatic session management)
 GRADESCOPE_CLIENT = GradescopeClient()
 
-# Load legacy configuration (CS10 Fall 2024)
-# TODO: Migrate to unified config.json system
-config_path = os.path.join(os.path.dirname(__file__), "config/cs10_fall_2024.json")
-with open(config_path, "r") as config_file:
-    config = json.load(config_file)
-
-# Legacy course IDs (for backward compatibility)
-CS_10_GS_COURSE_ID = str(config.get("GRADESCOPE_COURSE_ID"))  # Gradescope course ID
-CS_10_PL_COURSE_ID = str(config.get("PL_COURSE_ID"))  # PrairieLearn course ID
+# Legacy course IDs (deprecated - use config_manager instead)
+# These are kept for backward compatibility with old endpoints
+# New endpoints should use get_config_manager().get_course_config(course_id)
+CS_10_GS_COURSE_ID = None  # Deprecated: Use config_manager
+CS_10_PL_COURSE_ID = None  # Deprecated: Use config_manager
 
 # PrairieLearn API configuration
 PL_API_TOKEN = os.getenv("PL_API_TOKEN")
@@ -782,39 +782,20 @@ def retrieve_gradebook():
 def get_summary_sheet(course_id: str = None):
     """
     Fetches pre-computed summary sheet data from database.
-    
-    This endpoint returns the summary sheet data that has been pre-computed and stored
-    in the database, providing fast access to all student grades across all assignments.
-    
-    Parameters:
-        course_id (str): The Gradescope course ID. If not provided, uses default (CS_10_GS_COURSE_ID).
-    
-    Returns:
-        dict: Summary sheet data containing:
-            - assignments: List of assignment names in order
-            - students: List of student records with scores
-            - categories: Map of assignment names to category names
-            - max_points: Map of assignment names to max points
-    
-    Example Response:
-    {
-        "assignments": ["Lab 1", "Lab 2", "Project 1", ...],
-        "students": [
-            {
-                "legal_name": "John Doe",
-                "email": "john@example.com",
-                "scores": {"Lab 1": 10, "Lab 2": 9.5, ...}
-            },
-            ...
-        ],
-        "categories": {"Lab 1": "Labs", "Project 1": "Projects", ...},
-        "max_points": {"Lab 1": 10, "Lab 2": 10, ...}
-    }
+    Uses the first configured course when course_id is not supplied.
     """
-    from queries.summary import get_summary_sheet_from_db
-    
-    course_id = course_id or CS_10_GS_COURSE_ID
+    from api.queries.summary import get_summary_sheet_from_db
+
+    # Resolve default course id via config_manager
+    if not course_id:
+        available = list_available_courses()
+        if not available:
+            return JSONResponse(content={"error": "No courses configured"}, status_code=400)
+        from api.config_manager import get_course_config
+        cfg = get_course_config(available[0])
+        course_id = cfg.gradescope_course_id
+
     summary_data = get_summary_sheet_from_db(course_id)
-    
+
     return JSONResponse(content=summary_data, status_code=200)
 

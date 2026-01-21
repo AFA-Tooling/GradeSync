@@ -1,22 +1,22 @@
 #!/bin/bash
-# GradeSync 快速启动脚本
+# GradeSync Quick Start Script
 
 set -e
 
-echo "🚀 GradeSync 服务启动脚本"
+echo "🚀 GradeSync Service Startup Script"
 echo "================================"
 echo ""
 
-# 检查是否在正确的目录
+# Check if in correct directory
 if [ ! -f "api/app.py" ]; then
-    echo "❌ 错误：请在 GradeSync 根目录运行此脚本"
+    echo "❌ Error: Please run this script from the GradeSync root directory"
     exit 1
 fi
 
-# 检查 .env 文件
+# Check .env file
 if [ ! -f ".env" ]; then
-    echo "⚠️  警告：未找到 .env 文件"
-    echo "   请创建 .env 并配置以下环境变量："
+    echo "⚠️  Warning: .env file not found"
+    echo "   Please create .env and configure the following environment variables:"
     echo "   - GRADESCOPE_EMAIL"
     echo "   - GRADESCOPE_PASSWORD"
     echo "   - PL_API_TOKEN"
@@ -27,26 +27,26 @@ if [ ! -f ".env" ]; then
     echo ""
 fi
 
-# 检查数据库
-echo "📦 检查数据库连接..."
+# Check database connection
+echo "📦 Checking database connection..."
 python3 <<EOF
 import os
 from dotenv import load_dotenv
 load_dotenv()
 
 db_url = os.getenv('DATABASE_URL', 'postgresql://gradesync:changeme@localhost:5432/gradesync')
-print(f"   数据库: {db_url}")
+print(f"   Database: {db_url}")
 EOF
 
 echo ""
 
-# 启动 FastAPI
-echo "🌐 启动 FastAPI 服务..."
-echo "   访问 http://localhost:8000/docs 查看 API 文档"
+# Start FastAPI
+echo "🌐 Starting FastAPI service..."
+echo "   Visit http://localhost:8000/docs to view API documentation"
 echo ""
-echo "按 Ctrl+C 停止服务"
+echo "Press Ctrl+C to stop the service"
 echo "================================"
 echo ""
 
-# 使用 uvicorn 启动，支持自动重载
+# Start with uvicorn, supports auto-reload
 exec uvicorn api.app:app --host 0.0.0.0 --port 8000 --reload

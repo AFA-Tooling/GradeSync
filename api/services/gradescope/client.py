@@ -1,6 +1,11 @@
 # https://pypi.org/project/fullGSapi/
 from fullGSapi.api.client import GradescopeClient as GradescopeBaseClient
 import threading
+import requests
+from requests.exceptions import Timeout, RequestException
+
+# 每个HTTP请求的超时时间（秒）
+DEFAULT_REQUEST_TIMEOUT = 30  # 30秒，快速跳过卡住的作业
 
 class GradescopeClient(GradescopeBaseClient):
     def __init__(self, timeout: int = 1800):
@@ -12,6 +17,7 @@ class GradescopeClient(GradescopeBaseClient):
         """
         super().__init__()  # Initialize the parent class (GradescopeBaseClient)
         self.timeout = timeout
+        self.request_timeout = DEFAULT_REQUEST_TIMEOUT  # HTTP请求超时
         self.inactivity_timer = None
         self.lock = threading.Lock() # This is used for login synchronization
 
@@ -85,3 +91,40 @@ class GradescopeClient(GradescopeBaseClient):
                 self.logged_in = False
                 return True
             return False
+
+    def download_scores(self, class_id: str, assignment_id: str, filetype: str = "csv") -> bytes:
+        """
+        Download scores for an assignment with timeout support.
+        
+        This method overrides the parent class to add request timeout,
+        preventing indefinite hangs on slow or unresponsive requests.
+        
+        Parameters:
+            class_id: Gradescope course ID
+            assignment_id: Assignment ID
+            filetype: File type (default: csv)
+            
+        Returns:
+            bytes: CSV content or False on failure
+            
+        Raises:
+            TimeoutError: If request times out
+        """
+        if not self.logged_in:
+            print("You must be logged in to download grades!")
+            return False
+        
+        url = f"https://www.gradescope.com/courses/{class_id}/assignments/{assignment_id}/scores.{filetype}"
+        
+        try:
+            self.last_res = res = self.session.get(url, timeout=self.request_timeout)
+            if not res or not res.ok:
+                print(f"Failed to get a response from gradescope! Got: {res}")
+                return False
+            return res.content
+        except Timeout:
+            print(f"Request timed out after {self.request_timeout}s for assignment {assignment_id}")
+            raise TimeoutError(f"Download timed out after {self.request_timeout}s")
+        except RequestException as e:
+            print(f"Request error for assignment {assignment_id}: {e}")
+            raise

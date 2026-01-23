@@ -21,7 +21,7 @@ class User(Base):
     
     # Relationships
     courses_owned = relationship("Course", back_populates="owner", foreign_keys="Course.owner_id")
-    course_permissions = relationship("CoursePermission", back_populates="user")
+    course_permissions = relationship("CoursePermission", back_populates="user", foreign_keys="CoursePermission.user_id")
 
 
 class Course(Base):
@@ -38,6 +38,7 @@ class Course(Base):
     number_of_students = Column(Integer)
     owner_id = Column(Integer, ForeignKey("users.id"))
     is_active = Column(Boolean, default=True)
+    last_synced_at = Column(DateTime(timezone=True), index=True)  # Track last full sync
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     
@@ -167,6 +168,8 @@ class Assignment(Base):
     category = Column(String)
     max_points = Column(Numeric)
     assignment_metadata = Column(JSON)
+    last_synced_at = Column(DateTime(timezone=True), index=True)  # Track last sync time
+    gradescope_updated_at = Column(DateTime(timezone=True))  # From Gradescope API
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 

@@ -86,6 +86,21 @@ PL_SERVER = "https://us.prairielearn.com/pl/api/v1"
 
 
 # ============================================================================
+# DATABASE INITIALIZATION
+# ============================================================================
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize database tables on application startup."""
+    try:
+        from api.core.db import init_db
+        logger.info("Initializing database tables...")
+        init_db()
+        logger.info("Database tables initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize database: {e}")
+
+# ============================================================================
 # ROOT ENDPOINT
 # ============================================================================
 

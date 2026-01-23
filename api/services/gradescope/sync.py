@@ -5,10 +5,15 @@ High-level sync operations for Gradescope data.
 """
 from typing import Dict, Any, Optional
 import logging
+from datetime import datetime
 from .client import GradescopeClient
 from ..sheets.client import SheetsClient
 
 logger = logging.getLogger(__name__)
+
+def _ts():
+    """Return current timestamp for debug logs."""
+    return datetime.now().strftime('%H:%M:%S.%f')[:-3]
 
 
 class GradescopeSync:
@@ -93,25 +98,43 @@ class GradescopeSync:
                 logger.info(f"Downloading scores for: {assignment_name} (ID: {assignment_id})")
                 
                 try:
+                    import time as _time
+                    print(f"[{_ts()}] Processing {assignment_name}...", flush=True)
+                    
                     # Download CSV scores for this assignment
+                    _dl_start = _time.time()
                     scores_csv = self.gs_client.download_scores(course_id, assignment_id)
+                    _dl_elapsed = _time.time() - _dl_start
                     
                     if scores_csv:
                         # Ensure scores_csv is a string (not bytes)
                         if isinstance(scores_csv, bytes):
                             scores_csv = scores_csv.decode('utf-8')
                         
-                        print(f"[DEBUG] Downloaded {len(scores_csv)} bytes for {assignment_name}")
+                        print(f"[{_ts()}] Downloaded {len(scores_csv)} bytes for {assignment_name} ({_dl_elapsed:.2f}s)", flush=True)
                         
                         # Parse CSV and save to database if requested
                         if save_to_db:
-                            self._save_assignment_to_db(
-                                course_id=course_id,
+                            # Use optimized batch ingestion
+                            from api.core.ingest_optimized import write_assignment_scores_optimized
+                            
+                            _db_start = _time.time()
+                            result = write_assignment_scores_optimized(
+                                course_gradescope_id=course_id,
                                 assignment_id=assignment_id,
                                 assignment_name=assignment_name,
-                                scores_csv=scores_csv,
-                                course_config=course_config
+                                csv_content=scores_csv,
+                                course_config=course_config,
+                                force_sync=False  # Enable incremental sync
                             )
+                            _db_elapsed = _time.time() - _db_start
+                            
+                            if result.get('skipped'):
+                                print(f"[{_ts()}] Skipped {assignment_name} - {result.get('reason')} ({_db_elapsed:.2f}s)", flush=True)
+                            elif result.get('success'):
+                                print(f"[{_ts()}] Saved {assignment_name} ({result.get('submissions_processed')} subs, {_db_elapsed:.2f}s)", flush=True)
+                            else:
+                                print(f"[{_ts()}] Failed {assignment_name}: {result.get('error')} ({_db_elapsed:.2f}s)", flush=True)
                         
                         # 收集 Sheets 数据（稍后批量导出）
                         if spreadsheet_id:
@@ -132,12 +155,16 @@ class GradescopeSync:
                 
                 except Exception as e:
                     logger.error(f"Failed to sync {assignment_name}: {e}")
+                    print(f"[{_ts()}] Error: {assignment_name}: {e}", flush=True)
                     continue
             
             # 批量导出到 Sheets（一次性处理所有作业）
+            print(f"[{_ts()}] All {len(assignments_data)} assignments processed", flush=True)
             if spreadsheet_id and sheets_data:
+                print(f"[{_ts()}] Starting Sheets export...", flush=True)
                 logger.info(f"Exporting summary to Sheets...")
                 self._export_summary_to_sheets(spreadsheet_id, course_id)
+                print(f"[{_ts()}] Sheets export done", flush=True)
             
             results = {
                 "success": True,
@@ -146,6 +173,7 @@ class GradescopeSync:
                 "students_synced": len(students_data)
             }
             
+            print(f"[{_ts()}] Sync completed: {results}", flush=True)
             logger.info(f"Sync completed: {results}")
             return results
             
@@ -281,119 +309,156 @@ class GradescopeSync:
         spreadsheet_id: str,
         course_id: str
     ):
-        """导出课程汇总表和类别统计到 Google Sheets（不导出单个作业）"""
+        """
+        导出课程汇总表到 Google Sheets
+        
+        使用批量查询优化性能：
+        1. 一次性获取所有 assignments
+        2. 一次性获取所有 students  
+        3. 一次性获取所有 submissions，构建 lookup dict
+        """
         try:
-            import pandas as pd
+            import re
             import numpy as np
             from api.core.db import SessionLocal
             from api.core.models import Course, Assignment, Student, Submission
             
+            print(f"[{_ts()}] SHEETS: Starting export...", flush=True)
             session = SessionLocal()
             
-            # 获取课程数据
-            course = session.query(Course).filter(
-                Course.gradescope_course_id == course_id
-            ).first()
-            
-            if not course:
-                logger.error(f"Course not found: {course_id}")
-                session.close()
-                return
-            
-            logger.info(f"Building summary sheets for {course.name}...")
-            
-            # 1. 构建学生 x 作业 的汇总表
-            students = session.query(Student).all()
-            assignments = session.query(Assignment).filter(
-                Assignment.course_id == course.id
-            ).all()
-            
-            # 构建汇总数据
-            summary_data = []
-            header = ['Student Email', 'Student Name'] + [a.title for a in assignments]
-            summary_data.append(header)
-            
-            for student in students:
-                row = [student.email or '', student.legal_name or '']
-                for assignment in assignments:
-                    sub = session.query(Submission).filter(
-                        Submission.student_id == student.id,
-                        Submission.assignment_id == assignment.id
-                    ).first()
-                    if sub and sub.total_score is not None:
-                        row.append(float(sub.total_score))
-                    else:
-                        row.append('')
-                summary_data.append(row)
-            
-            # 2. 构建按类别统计表
-            from sqlalchemy import func
-            category_stats = session.query(
-                Assignment.category,
-                func.count(Submission.id).label('submitted_count'),
-                func.avg(Submission.total_score).label('avg_score'),
-                func.max(Assignment.max_points).label('max_points')
-            ).join(Submission, Submission.assignment_id == Assignment.id).filter(
-                Assignment.course_id == course.id,
-                Assignment.category.isnot(None)
-            ).group_by(Assignment.category).all()
-            
-            category_data = [['Category', 'Assignments', 'Avg Score', 'Max Points']]
-            for cat, count, avg_score, max_pts in category_stats:
-                if cat and cat != 'Uncategorized':  # 忽略 Practice
-                    category_data.append([
-                        cat,
-                        count,
-                        round(float(avg_score), 2) if avg_score else '',
-                        float(max_pts) if max_pts else ''
-                    ])
-            
-            # 清理 NaN
-            def clean_data(data):
-                cleaned = []
-                for row in data:
-                    cleaned_row = []
-                    for cell in row:
-                        try:
-                            if isinstance(cell, (float, np.floating)):
-                                if not np.isfinite(cell):
-                                    cleaned_row.append(None)
+            try:
+                # 获取课程
+                course = session.query(Course).filter(
+                    Course.gradescope_course_id == course_id
+                ).first()
+                
+                if not course:
+                    logger.error(f"Course not found: {course_id}")
+                    return
+                
+                print(f"[{_ts()}] SHEETS: Building summary for {course.name}", flush=True)
+                
+                # 批量查询所有 assignments
+                assignments = session.query(Assignment).filter(
+                    Assignment.course_id == course.id
+                ).all()
+                
+                # 按类别和编号排序
+                def extract_number(title):
+                    numbers = re.findall(r"\d+", title or "")
+                    return int(numbers[0]) if numbers else 0
+                
+                def categorize(title):
+                    name_lower = (title or "").lower()
+                    if 'lecture' in name_lower or 'quiz' in name_lower:
+                        return 'Quest'
+                    elif 'midterm' in name_lower:
+                        return 'Midterm'
+                    elif 'postterm' in name_lower or 'posterm' in name_lower:
+                        return 'Postterm'
+                    elif 'project' in name_lower:
+                        return 'Projects'
+                    elif 'lab' in name_lower:
+                        return 'Labs'
+                    elif 'discussion' in name_lower:
+                        return 'Discussions'
+                    return 'Other'
+                
+                category_order = {'Quest': 1, 'Midterm': 2, 'Postterm': 3, 'Projects': 4, 'Labs': 5, 'Discussions': 6, 'Other': 99}
+                
+                assignments = sorted(assignments, key=lambda a: (
+                    category_order.get(categorize(a.title), 99),
+                    extract_number(a.title),
+                    a.title or ""
+                ))
+                
+                print(f"[{_ts()}] SHEETS: Found {len(assignments)} assignments", flush=True)
+                
+                # 批量查询所有 students
+                students = session.query(Student).order_by(Student.legal_name).all()
+                print(f"[{_ts()}] SHEETS: Found {len(students)} students", flush=True)
+                
+                # 批量查询所有 submissions（关键优化！）
+                submissions = session.query(Submission).join(Assignment).filter(
+                    Assignment.course_id == course.id
+                ).all()
+                
+                # 构建 lookup dict: (assignment_id, student_id) -> submission
+                submission_lookup = {
+                    (sub.assignment_id, sub.student_id): sub
+                    for sub in submissions
+                }
+                print(f"[{_ts()}] SHEETS: Loaded {len(submissions)} submissions", flush=True)
+                
+                # 构建 Summary 数据
+                rows = []
+                
+                # Row 1: Headers
+                row1 = ["Legal Name", "Email"] + [a.title for a in assignments]
+                
+                # Row 2: Categories  
+                row2 = ["CATEGORY", "CATEGORY"] + [categorize(a.title) for a in assignments]
+                
+                # Row 3: Max points
+                row3 = ["MAX POINTS", "MAX POINTS"] + [float(a.max_points or 0) for a in assignments]
+                
+                rows.append(row1)
+                rows.append(row2)
+                rows.append(row3)
+                
+                # Student rows - 使用 lookup 而不是单独查询
+                for student in students:
+                    row = [student.legal_name or "", student.email or ""]
+                    for assignment in assignments:
+                        sub = submission_lookup.get((assignment.id, student.id))
+                        if sub and sub.total_score is not None:
+                            row.append(float(sub.total_score))
+                        else:
+                            row.append("")
+                    rows.append(row)
+                
+                print(f"[{_ts()}] SHEETS: Built {len(rows)} rows", flush=True)
+                
+                # 清理 NaN
+                def clean_data(data):
+                    cleaned = []
+                    for row in data:
+                        cleaned_row = []
+                        for cell in row:
+                            try:
+                                if isinstance(cell, (float, np.floating)):
+                                    if not np.isfinite(cell):
+                                        cleaned_row.append(None)
+                                    else:
+                                        cleaned_row.append(cell)
                                 else:
                                     cleaned_row.append(cell)
-                            else:
+                            except:
                                 cleaned_row.append(cell)
-                        except:
-                            cleaned_row.append(cell)
-                    cleaned.append(cleaned_row)
-                return cleaned
+                        cleaned.append(cleaned_row)
+                    return cleaned
+                
+                rows = clean_data(rows)
+                
+                # 更新 Google Sheets
+                print(f"[{_ts()}] SHEETS: Updating spreadsheet...", flush=True)
+                spreadsheet = self.sheets_client.open_spreadsheet(spreadsheet_id)
+                
+                # Summary 表
+                try:
+                    summary_ws = spreadsheet.worksheet('Summary')
+                    summary_ws.clear()
+                except:
+                    summary_ws = spreadsheet.add_worksheet('Summary', rows=len(rows)+10, cols=len(assignments)+5)
+                
+                summary_ws.update('A1', rows)
+                print(f"[{_ts()}] SHEETS: Updated Summary ({len(rows)} rows x {len(assignments)+2} cols)", flush=True)
+                logger.info(f"✅ Updated Summary sheet ({len(rows)} rows)")
+                
+            finally:
+                session.close()
             
-            summary_data = clean_data(summary_data)
-            category_data = clean_data(category_data)
-            
-            # 更新工作表
-            spreadsheet = self.sheets_client.open_spreadsheet(spreadsheet_id)
-            
-            # Summary 表
-            try:
-                summary_ws = spreadsheet.worksheet('Summary')
-                summary_ws.clear()
-            except:
-                summary_ws = spreadsheet.add_worksheet('Summary', rows=len(summary_data)+10, cols=26)
-            
-            summary_ws.update('A1', summary_data)
-            logger.info(f"✅ Updated Summary sheet ({len(summary_data)} rows)")
-            
-            # Category Statistics 表
-            try:
-                cat_ws = spreadsheet.worksheet('Category Statistics')
-                cat_ws.clear()
-            except:
-                cat_ws = spreadsheet.add_worksheet('Category Statistics', rows=10, cols=10)
-            
-            cat_ws.update('A1', category_data)
-            logger.info(f"✅ Updated Category Statistics sheet")
-            
-            session.close()
+            print(f"[{_ts()}] SHEETS: Export complete", flush=True)
             logger.info(f"✅ Successfully exported summary to Sheets")
             
         except Exception as e:

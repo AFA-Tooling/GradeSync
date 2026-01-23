@@ -49,7 +49,7 @@ class GradescopeClient(GradescopeBaseClient):
             with self.lock:  # Ensures only one thread can execute this block at a time
                 if self.logged_in:  # Double-check inside the lock to avoid redundant login attempts
                     self.reset_inactivity_timer()
-                    print("Logged in to Gradescope")
+                    # print("Logged in to Gradescope")
                     return True
                 
                 url = self.base_url + self.login_path
@@ -66,7 +66,7 @@ class GradescopeClient(GradescopeBaseClient):
                 self.last_res = res = self.submit_form(url, url, data=payload)
                 if res.ok:
                     self.logged_in = True
-                    print("Logged in to Gradescope")
+                    # print("Logged in to Gradescope")
                     self.reset_inactivity_timer()
                     return True
                 return False
@@ -78,7 +78,7 @@ class GradescopeClient(GradescopeBaseClient):
         Logs out of Gradescope. This overriden method is thread-safe.
         """
         with self.lock:  # Ensures only one thread can execute this block at a time
-            print("Logging out")
+            # print("Logging out")
             if not self.logged_in:  # Double-check within the lock to avoid redundant logout attempts
                 print("You must be logged in!")
                 return False
@@ -86,10 +86,16 @@ class GradescopeClient(GradescopeBaseClient):
             base_url = "https://www.gradescope.com"
             url = base_url + "/logout"
             ref_url = base_url + "/account"
-            self.last_res = res = self.session.get(url, headers={"Referer": ref_url})
-            if res.ok:
+            try:
+                self.last_res = res = self.session.get(url, headers={"Referer": ref_url}, timeout=self.request_timeout)
+                if res.ok:
+                    self.logged_in = False
+                    return True
+            except (Timeout, RequestException):
+                # If logout fails or times out, we still want to set logged_in to False locally
+                # so that we can try logging in again fresh later.
                 self.logged_in = False
-                return True
+                return False
             return False
 
     def download_scores(self, class_id: str, assignment_id: str, filetype: str = "csv") -> bytes:
@@ -111,7 +117,7 @@ class GradescopeClient(GradescopeBaseClient):
             TimeoutError: If request times out
         """
         if not self.logged_in:
-            print("You must be logged in to download grades!")
+            # print("You must be logged in to download grades!")
             return False
         
         url = f"https://www.gradescope.com/courses/{class_id}/assignments/{assignment_id}/scores.{filetype}"
@@ -119,7 +125,7 @@ class GradescopeClient(GradescopeBaseClient):
         try:
             self.last_res = res = self.session.get(url, timeout=self.request_timeout)
             if not res or not res.ok:
-                print(f"Failed to get a response from gradescope! Got: {res}")
+                # print(f"Failed to get a response from gradescope! Got: {res}")
                 return False
             return res.content
         except Timeout:

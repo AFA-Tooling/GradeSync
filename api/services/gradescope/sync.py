@@ -67,31 +67,31 @@ class GradescopeSync:
         Returns:
             Dictionary with sync results
         """
-        print(f"[DEBUG] Starting Gradescope sync for course {course_id}")
+        # print(f"[DEBUG] Starting Gradescope sync for course {course_id}")
         logger.info(f"Starting Gradescope sync for course {course_id}")
         
         try:
             # Login to Gradescope
-            print("[DEBUG] Attempting Gradescope login...")
+            # print("[DEBUG] Attempting Gradescope login...")
             logger.info("Attempting Gradescope login...")
             login_result = self.gs_client.log_in(self.email, self.password)
-            print(f"[DEBUG] Login result: {login_result}")
+            # print(f"[DEBUG] Login result: {login_result}")
             logger.info(f"Login result: {login_result}")
             
             if not login_result:
                 raise RuntimeError("Failed to login to Gradescope")
             
             # Get assignments for the course
-            print("[DEBUG] Fetching course assignments...")
+            # print("[DEBUG] Fetching course assignments...")
             logger.info("Fetching course assignments...")
             assignments_data = {}
             students_data = set()
             sheets_data = []  # 收集所有需要导出到 Sheets 的数据
             
             # Download all assignments and their scores
-            print(f"[DEBUG] About to call _get_course_assignments({course_id})")
+            # print(f"[DEBUG] About to call _get_course_assignments({course_id})")
             course_assignments = self._get_course_assignments(course_id)
-            print(f"[DEBUG] Retrieved {len(course_assignments)} assignments from Gradescope")
+            # print(f"[DEBUG] Retrieved {len(course_assignments)} assignments from Gradescope")
             logger.info(f"Retrieved {len(course_assignments)} assignments from Gradescope")
             
             for assignment_id, assignment_name in course_assignments.items():
@@ -111,7 +111,7 @@ class GradescopeSync:
                         if isinstance(scores_csv, bytes):
                             scores_csv = scores_csv.decode('utf-8')
                         
-                        print(f"[{_ts()}] Downloaded {len(scores_csv)} bytes for {assignment_name} ({_dl_elapsed:.2f}s)", flush=True)
+                        # print(f"[{_ts()}] Downloaded {len(scores_csv)} bytes for {assignment_name} ({_dl_elapsed:.2f}s)", flush=True)
                         
                         # Parse CSV and save to database if requested
                         if save_to_db:
@@ -124,17 +124,16 @@ class GradescopeSync:
                                 assignment_id=assignment_id,
                                 assignment_name=assignment_name,
                                 csv_content=scores_csv,
-                                course_config=course_config,
-                                force_sync=False  # Enable incremental sync
+                                course_config=course_config
                             )
                             _db_elapsed = _time.time() - _db_start
                             
-                            if result.get('skipped'):
-                                print(f"[{_ts()}] Skipped {assignment_name} - {result.get('reason')} ({_db_elapsed:.2f}s)", flush=True)
-                            elif result.get('success'):
-                                print(f"[{_ts()}] Saved {assignment_name} ({result.get('submissions_processed')} subs, {_db_elapsed:.2f}s)", flush=True)
-                            else:
-                                print(f"[{_ts()}] Failed {assignment_name}: {result.get('error')} ({_db_elapsed:.2f}s)", flush=True)
+                            # if result.get('skipped'):
+                            #     print(f"[{_ts()}] Skipped {assignment_name} - {result.get('reason')} ({_db_elapsed:.2f}s)", flush=True)
+                            # elif result.get('success'):
+                            #     print(f"[{_ts()}] Saved {assignment_name} ({result.get('submissions_processed')} subs, {_db_elapsed:.2f}s)", flush=True)
+                            # else:
+                            #     print(f"[{_ts()}] Failed {assignment_name}: {result.get('error')} ({_db_elapsed:.2f}s)", flush=True)
                         
                         # 收集 Sheets 数据（稍后批量导出）
                         if spreadsheet_id:
@@ -155,16 +154,16 @@ class GradescopeSync:
                 
                 except Exception as e:
                     logger.error(f"Failed to sync {assignment_name}: {e}")
-                    print(f"[{_ts()}] Error: {assignment_name}: {e}", flush=True)
+                    # print(f"[{_ts()}] Error: {assignment_name}: {e}", flush=True)
                     continue
             
             # 批量导出到 Sheets（一次性处理所有作业）
-            print(f"[{_ts()}] All {len(assignments_data)} assignments processed", flush=True)
+            # print(f"[{_ts()}] All {len(assignments_data)} assignments processed", flush=True)
             if spreadsheet_id and sheets_data:
-                print(f"[{_ts()}] Starting Sheets export...", flush=True)
+                # print(f"[{_ts()}] Starting Sheets export...", flush=True)
                 logger.info(f"Exporting summary to Sheets...")
                 self._export_summary_to_sheets(spreadsheet_id, course_id)
-                print(f"[{_ts()}] Sheets export done", flush=True)
+                # print(f"[{_ts()}] Sheets export done", flush=True)
             
             results = {
                 "success": True,
@@ -173,7 +172,7 @@ class GradescopeSync:
                 "students_synced": len(students_data)
             }
             
-            print(f"[{_ts()}] Sync completed: {results}", flush=True)
+            # print(f"[{_ts()}] Sync completed: {results}", flush=True)
             logger.info(f"Sync completed: {results}")
             return results
             
@@ -202,7 +201,7 @@ class GradescopeSync:
         import re
         import json
         
-        print(f"[DEBUG] Getting assignments for course {course_id}")
+        # print(f"[DEBUG] Getting assignments for course {course_id}")
         
         try:
             # Get course assignments page
@@ -222,15 +221,15 @@ class GradescopeSync:
             for assignment_id, assignment_name in matches:
                 assignments[assignment_id] = assignment_name
             
-            print(f"[DEBUG] Found {len(assignments)} assignments: {assignments}")
+            # print(f"[DEBUG] Found {len(assignments)} assignments: {assignments}")
             logger.info(f"Found {len(assignments)} assignments")
             return assignments
             
         except Exception as e:
-            print(f"[DEBUG] Error getting assignments: {e}")
+            # print(f"[DEBUG] Error getting assignments: {e}")
             logger.error(f"Failed to get assignments: {e}")
-            import traceback
-            traceback.print_exc()
+            # import traceback
+            # traceback.print_exc()
             return {}
     
     def _save_assignment_to_db(
@@ -290,7 +289,7 @@ class GradescopeSync:
                     instructor=instructor,
                     course_categories=course_categories
                 )
-                print(f"[DEBUG] Saved {assignment_name} to database")
+                # print(f"[DEBUG] Saved {assignment_name} to database")
                 logger.info(f"Saved {assignment_name} to database")
                 
             finally:
@@ -299,10 +298,10 @@ class GradescopeSync:
                     os.remove(temp_filepath)
             
         except Exception as e:
-            print(f"[DEBUG] Failed to save {assignment_name} to database: {e}")
+            # print(f"[DEBUG] Failed to save {assignment_name} to database: {e}")
             logger.error(f"Failed to save {assignment_name} to database: {e}")
-            import traceback
-            traceback.print_exc()
+            # import traceback
+            # traceback.print_exc()
     
     def _export_summary_to_sheets(
         self,
@@ -323,7 +322,7 @@ class GradescopeSync:
             from api.core.db import SessionLocal
             from api.core.models import Course, Assignment, Student, Submission
             
-            print(f"[{_ts()}] SHEETS: Starting export...", flush=True)
+            # print(f"[{_ts()}] SHEETS: Starting export...", flush=True)
             session = SessionLocal()
             
             try:
@@ -336,7 +335,7 @@ class GradescopeSync:
                     logger.error(f"Course not found: {course_id}")
                     return
                 
-                print(f"[{_ts()}] SHEETS: Building summary for {course.name}", flush=True)
+                # print(f"[{_ts()}] SHEETS: Building summary for {course.name}", flush=True)
                 
                 # 批量查询所有 assignments
                 assignments = session.query(Assignment).filter(
@@ -372,11 +371,11 @@ class GradescopeSync:
                     a.title or ""
                 ))
                 
-                print(f"[{_ts()}] SHEETS: Found {len(assignments)} assignments", flush=True)
+                # print(f"[{_ts()}] SHEETS: Found {len(assignments)} assignments", flush=True)
                 
                 # 批量查询所有 students
                 students = session.query(Student).order_by(Student.legal_name).all()
-                print(f"[{_ts()}] SHEETS: Found {len(students)} students", flush=True)
+                # print(f"[{_ts()}] SHEETS: Found {len(students)} students", flush=True)
                 
                 # 批量查询所有 submissions（关键优化！）
                 submissions = session.query(Submission).join(Assignment).filter(
@@ -388,7 +387,7 @@ class GradescopeSync:
                     (sub.assignment_id, sub.student_id): sub
                     for sub in submissions
                 }
-                print(f"[{_ts()}] SHEETS: Loaded {len(submissions)} submissions", flush=True)
+                # print(f"[{_ts()}] SHEETS: Loaded {len(submissions)} submissions", flush=True)
                 
                 # 构建 Summary 数据
                 rows = []
@@ -417,7 +416,7 @@ class GradescopeSync:
                             row.append("")
                     rows.append(row)
                 
-                print(f"[{_ts()}] SHEETS: Built {len(rows)} rows", flush=True)
+                # print(f"[{_ts()}] SHEETS: Built {len(rows)} rows", flush=True)
                 
                 # 清理 NaN
                 def clean_data(data):
@@ -441,7 +440,7 @@ class GradescopeSync:
                 rows = clean_data(rows)
                 
                 # 更新 Google Sheets
-                print(f"[{_ts()}] SHEETS: Updating spreadsheet...", flush=True)
+                # print(f"[{_ts()}] SHEETS: Updating spreadsheet...", flush=True)
                 spreadsheet = self.sheets_client.open_spreadsheet(spreadsheet_id)
                 
                 # Summary 表
@@ -452,13 +451,13 @@ class GradescopeSync:
                     summary_ws = spreadsheet.add_worksheet('Summary', rows=len(rows)+10, cols=len(assignments)+5)
                 
                 summary_ws.update('A1', rows)
-                print(f"[{_ts()}] SHEETS: Updated Summary ({len(rows)} rows x {len(assignments)+2} cols)", flush=True)
+                # print(f"[{_ts()}] SHEETS: Updated Summary ({len(rows)} rows x {len(assignments)+2} cols)", flush=True)
                 logger.info(f"✅ Updated Summary sheet ({len(rows)} rows)")
                 
             finally:
                 session.close()
             
-            print(f"[{_ts()}] SHEETS: Export complete", flush=True)
+            # print(f"[{_ts()}] SHEETS: Export complete", flush=True)
             logger.info(f"✅ Successfully exported summary to Sheets")
             
         except Exception as e:

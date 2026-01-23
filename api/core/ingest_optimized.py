@@ -144,8 +144,7 @@ def write_assignment_scores_optimized(
     assignment_id: str,
     assignment_name: str,
     csv_content: str,
-    course_config: Optional[Dict[str, Any]] = None,
-    force_sync: bool = False
+    course_config: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
     Optimized version of write_assignment_scores_to_db with batch operations.
@@ -156,17 +155,16 @@ def write_assignment_scores_optimized(
         assignment_name: Assignment title
         csv_content: CSV content as string
         course_config: Optional course configuration
-        force_sync: Force sync even if recently synced
         
     Returns:
         Dict with sync results
     """
     import time as _time
     _fn_start = _time.time()
-    print(f"[{_ts()}] DB: Starting write_assignment_scores_optimized for {assignment_name}")
+    # print(f"[{_ts()}] DB: Starting write_assignment_scores_optimized for {assignment_name}")
     
     session = SessionLocal()
-    print(f"[{_ts()}] DB: Session created ({_time.time() - _fn_start:.2f}s)")
+    # print(f"[{_ts()}] DB: Session created ({_time.time() - _fn_start:.2f}s)")
     
     try:
         # Get or create course
@@ -174,26 +172,12 @@ def write_assignment_scores_optimized(
         course = session.query(Course).filter(
             Course.gradescope_course_id == course_gradescope_id
         ).first()
-        print(f"[{_ts()}] DB: Course query ({_time.time() - _step_start:.2f}s)")
+        # print(f"[{_ts()}] DB: Course query ({_time.time() - _step_start:.2f}s)")
         
         if not course:
             logger.error(f"Course {course_gradescope_id} not found in database")
             session.close()
             return {"success": False, "error": "Course not found"}
-        
-        # Check if we should sync this assignment
-        _step_start = _time.time()
-        if not should_sync_assignment(session, course.id, assignment_id, force_sync):
-            print(f"[{_ts()}] DB: should_sync=False ({_time.time() - _step_start:.2f}s)")
-            logger.info(f"Skipping {assignment_name} - recently synced")
-            session.close()
-            print(f"[{_ts()}] DB: Session closed for skipped assignment")
-            return {
-                "success": True,
-                "skipped": True,
-                "reason": "Recently synced"
-            }
-        print(f"[{_ts()}] DB: should_sync=True ({_time.time() - _step_start:.2f}s)")
         
         # Get or create assignment
         _step_start = _time.time()
@@ -201,7 +185,7 @@ def write_assignment_scores_optimized(
             Assignment.assignment_id == str(assignment_id),
             Assignment.course_id == course.id
         ).first()
-        print(f"[{_ts()}] DB: Assignment query ({_time.time() - _step_start:.2f}s)")
+        # print(f"[{_ts()}] DB: Assignment query ({_time.time() - _step_start:.2f}s)")
         
         if not assignment:
             assignment = Assignment(
